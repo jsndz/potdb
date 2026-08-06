@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include "row.h"
 #include "pager.h"
 

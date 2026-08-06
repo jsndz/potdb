@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #define COL_USERNAME_SIZE 32
 #define COL_EMAIL_SIZE 255

@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <sys/types.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 #include "btree.h"
 
 typedef struct InputBuffer

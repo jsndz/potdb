@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #define PAGE_SIZE 4096
 #define TABLE_MAX_PAGES 100
