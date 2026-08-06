@@ -39,7 +39,9 @@ To build and run the project, follow these steps:
 2. Compile the code:
 
    ```bash
-   gcc -o db database.c
+   make
+   # or manually compile with:
+   gcc -Wall -Wextra -Iinclude src/*.c -o db
    ```
 
 3. Run the database:
