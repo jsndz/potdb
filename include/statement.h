@@ -28,7 +28,9 @@ typedef enum
 typedef enum
 {
     SELECT_STATEMENT,
-    INSERT_STATEMENT
+    INSERT_STATEMENT,
+    TRANSACTION_BEGIN,
+    TRANSACTION_COMMIT,
 } StatementType;
 
 typedef struct

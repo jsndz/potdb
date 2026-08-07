@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include <transaction.h>
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
 {
     statement->type = INSERT_STATEMENT;
@@ -48,8 +48,10 @@ PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
         statement->type = SELECT_STATEMENT;
         return PREPARE_SUCCESS;
     }
-    else
-    {
+    else if (strncmp(inputBuffer->buffer, "begin", 5) == 0){
+        statement->type = TRANSACTION_BEGIN;
+        return PREPARE_SUCCESS;
+    }else {
         return PREPARE_UNRECOGNIZED_STATEMENT;
     }
 }
@@ -94,6 +96,11 @@ ExecuteResult execute_select(Statement *statement, Table *table)
     return EXECUTE_SUCCESS;
 }
 
+ExecuteResult execute_begin_transaction() {
+    start_transaction();
+    return EXECUTE_SUCCESS;
+}
+
 ExecuteResult execute_statement(Statement *statement, Table *table)
 {
     switch (statement->type)
@@ -102,6 +109,8 @@ ExecuteResult execute_statement(Statement *statement, Table *table)
         return execute_select(statement, table);
     case INSERT_STATEMENT:
         return execute_insert(statement, table);
+    case TRANSACTION_BEGIN:
+        return execute_begin_transaction();
     default:
         return EXECUTE_SUCCESS;
     }

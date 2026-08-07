@@ -1,19 +1,26 @@
 #ifndef TRANSACTION_H
 #define TRANSACTION_H
-int transaction_id =1;
 
-typedef enum  
+#include <stdbool.h>
+
+typedef enum
 {
     ACTIVE,
     PARTIALLY_COMMITTED,
-    COMMITED,
+    COMMITTED,
     FAILED,
     ABORTED
-}TransactionStates ;
+} TransactionStates;
+
 
 typedef struct {
-   int ID;
-   TransactionStates state;
+    int ID;
+    TransactionStates state;
 } Transaction;
+
+
+extern int transaction_id;
+extern bool IN_TRANSACTION;
+extern Transaction *t;
 
 #endif

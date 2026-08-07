@@ -3,6 +3,8 @@
 #include "repl.h"
 #include "statement.h"
 #include "btree.h"
+#include "transaction.h"
+
 
 int main(int argc, char *argv[])
 {
