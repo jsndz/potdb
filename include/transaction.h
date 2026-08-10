@@ -22,5 +22,6 @@ typedef struct {
 extern int transaction_id;
 extern bool IN_TRANSACTION;
 extern Transaction *t;
+void start_transaction(void);
 
 #endif

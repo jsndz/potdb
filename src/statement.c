@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <transaction.h>
+
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
 {
     statement->type = INSERT_STATEMENT;
@@ -77,6 +78,7 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
     }
 
     leaf_node_insert(cursor, row_to_insert->id, row_to_insert);
+    pager_flush(cursor->table->pager,cursor->page_num);
     free(cursor);
     return EXECUTE_SUCCESS;
 }
@@ -111,6 +113,7 @@ ExecuteResult execute_statement(Statement *statement, Table *table)
         return execute_insert(statement, table);
     case TRANSACTION_BEGIN:
         return execute_begin_transaction();
+    
     default:
         return EXECUTE_SUCCESS;
     }

@@ -12,10 +12,10 @@ int getTxID(){
 }
 
 Transaction *Newtransaction(){
-    Transaction t;
-    t.ID  = getTxID();
-    t.state = ACTIVE;
-    return &t;
+    Transaction *t =  malloc(sizeof(Transaction));
+    t->ID  = getTxID();
+    t->state = ACTIVE;
+    return t;
 }
 
 Transaction *GetCurrentTransaction(){
@@ -23,9 +23,9 @@ Transaction *GetCurrentTransaction(){
 }
 
 void start_transaction(){
-    t = Newtransaction();
+    Transaction *t = Newtransaction();
     IN_TRANSACTION = true;
     txn = malloc(sizeof(Transaction));
     txn = t;
-    return ;
+    return;
 }
