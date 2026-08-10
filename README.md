@@ -57,6 +57,8 @@ You can interact with the database using SQL commands. Here are some examples:
 
   ```sql
   insert 1 "username" "email@example.com";
+  insert 2 "xxx" "jfio" 
+  insert 3 "xwxx" "jfwio" 
   ```
 
 - To select rows:

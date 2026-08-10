@@ -40,6 +40,7 @@ PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
 
 PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
 {
+  
     if (strncmp(inputBuffer->buffer, "insert", 6) == 0)
     {
         return prepare_insert(inputBuffer, statement);
@@ -52,7 +53,12 @@ PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
     else if (strncmp(inputBuffer->buffer, "begin", 5) == 0){
         statement->type = TRANSACTION_BEGIN;
         return PREPARE_SUCCESS;
-    }else {
+    }
+    else if (strncmp(inputBuffer->buffer, "commit", 6) == 0){
+        statement->type = TRANSACTION_COMMIT;
+        return PREPARE_SUCCESS;
+    }
+    else {
         return PREPARE_UNRECOGNIZED_STATEMENT;
     }
 }
@@ -78,7 +84,9 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
     }
 
     leaf_node_insert(cursor, row_to_insert->id, row_to_insert);
-    pager_flush(cursor->table->pager,cursor->page_num);
+    if(!IN_TRANSACTION) {
+        pager_flush(cursor->table->pager,cursor->page_num);
+    }
     free(cursor);
     return EXECUTE_SUCCESS;
 }
@@ -103,6 +111,12 @@ ExecuteResult execute_begin_transaction() {
     return EXECUTE_SUCCESS;
 }
 
+ExecuteResult execute_commit_transaction(Table *table){
+    Cursor *cursor = table_start(table);
+    pager_flush(cursor->table->pager,cursor->page_num);
+    return EXECUTE_SUCCESS;
+}
+
 ExecuteResult execute_statement(Statement *statement, Table *table)
 {
     switch (statement->type)
@@ -113,7 +127,8 @@ ExecuteResult execute_statement(Statement *statement, Table *table)
         return execute_insert(statement, table);
     case TRANSACTION_BEGIN:
         return execute_begin_transaction();
-    
+    case TRANSACTION_COMMIT:
+        return execute_commit_transaction(table);
     default:
         return EXECUTE_SUCCESS;
     }
