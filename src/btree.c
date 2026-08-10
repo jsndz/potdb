@@ -55,12 +55,22 @@ void db_close(Table *table)
 
 void free_table(Table *table)
 {
-    for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++)
+    if (table == NULL) return;
+    if (table->pager != NULL)
     {
-        free(table->pager->pages[i]);
+        for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++)
+        {
+            if (table->pager->pages[i] != NULL)
+            {
+                free(table->pager->pages[i]);
+                table->pager->pages[i] = NULL;
+            }
+        }
+        free(table->pager);
     }
     free(table);
 }
+
 
 Cursor *leaf_node_find(Table *table, uint32_t page_num, uint32_t key)
 {

@@ -97,3 +97,12 @@ No-Force: Commits return as soon as the change is recorded in memory/log, deferr
 
 
 Will go with No-steal force approach
+
+
+
+For normal application as soon as insert is executed the data will be committed to the RAM and disk.
+For Transaction we will add the data to the RAM then on commit we will push to disk.
+
+
+for rollback  keep track of pages that are changed and only paste the
+  changes from disk page to RAM 

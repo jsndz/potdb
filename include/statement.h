@@ -31,6 +31,7 @@ typedef enum
     INSERT_STATEMENT,
     TRANSACTION_BEGIN,
     TRANSACTION_COMMIT,
+    TRANSACTION_ROLLBACK,
 } StatementType;
 
 typedef struct
