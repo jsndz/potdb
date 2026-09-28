@@ -1,9 +1,6 @@
 CompileFlags:
   Add:
     - "-Iinclude"
-    - "-D_GNU_SOURCE"
+    - "-I."
     - "-std=c99"
-Diagnostics:
-  Suppress:
-    - "pp_file_not_found"
-    - "drv_unknown_argument"
+    - "-D_GNU_SOURCE"

@@ -24,10 +24,12 @@ we need to consider ACID, so there are 2 policies for handling this from aries f
 atomicity: 
 Steal or No Steal
 Steal - Allow dirty commits to be added to the disk to free up RAM
-no steal - dont allow dirty commits 
+no steal - dont allow dirty commits  to the disk
+During the transaction 
 durability:
 Force or No Force
 Force: On commit, all dirty pages modified by the transaction must be synchronously written to disk before the commit returns.
+When a transaction commits, all its modified (dirty) pages must be written to disk.
 No-Force: Commits return as soon as the change is recorded in memory/log, deferring disk writes of actual datapages.
 
   ### Approach 1: Strict No-Steal / Force (Memory-Bound In-Place Updates)
