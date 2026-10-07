@@ -4,19 +4,17 @@
 
 void serialize_row(Row *source, void *destination)
 {
-    memcpy((char *)destination + ID_OFFSET, &(source->id), ID_SIZE);
-    strncpy((char *)destination + USERNAME_OFFSET, source->username, USERNAME_SIZE);
-    strncpy((char *)destination + EMAIL_OFFSET, source->email, EMAIL_SIZE);
+    memcpy((char *)destination + TIMESTAMP_OFFSET, &(source->timestamp), TIMESTAMP_SIZE);
+    memcpy((char *)destination + POSITION_OFFSET, &(source->timestamp), POSITION_SIZE);
 }
 
 void deserialize_row(void *source, Row *destination)
 {
-    memcpy(&(destination->id), ((char *)source + ID_OFFSET), ID_SIZE);
-    memcpy(&(destination->username), ((char *)source + USERNAME_OFFSET), USERNAME_SIZE);
-    memcpy(&(destination->email), ((char *)source + EMAIL_OFFSET), EMAIL_SIZE);
+    memcpy(&(destination->timestamp), ((char *)source + TIMESTAMP_OFFSET), TIMESTAMP_SIZE);
+    memcpy(&(destination->pos), ((char *)source + POSITION_OFFSET), POSITION_SIZE);
 }
 
 void print_row(Row *row)
 {
-    printf("(%d, %s, %s)\n", row->id, row->username, row->email);
+    printf("(%f, %d, %d)\n", row->timestamp, row->pos.x , row->pos.y);
 }

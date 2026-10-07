@@ -2,32 +2,33 @@
 #define ROW_H
 
 #include <stdint.h>
+#include <time.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <position.h>
 
-#define COL_USERNAME_SIZE 32
-#define COL_EMAIL_SIZE 255
+#define COL_USERNAME_SIZE sizeof(time_t)
+#define COL_EMAIL_SIZE size(Position)
 
 #define size_of_attribute(Struct, Attribute) sizeof(((Struct *)0)->Attribute)
 
+
 typedef struct
 {
-    uint32_t id;
-    char username[COL_USERNAME_SIZE + 1];
-    char email[COL_EMAIL_SIZE + 1];
+    time_t timestamp;
+    Position pos;
 } Row;
 
-#define ID_SIZE ((uint32_t)size_of_attribute(Row, id))
-#define USERNAME_SIZE ((uint32_t)size_of_attribute(Row, username))
-#define EMAIL_SIZE ((uint32_t)size_of_attribute(Row, email))
+#define TIMESTAMP_SIZE sizeof(time_t)
+#define POSITION_SIZE sizeof(Position)
 
-#define ID_OFFSET ((uint32_t)0)
-#define USERNAME_OFFSET (ID_OFFSET + ID_SIZE)
-#define EMAIL_OFFSET (USERNAME_OFFSET + USERNAME_SIZE)
-#define ROW_SIZE (ID_SIZE + USERNAME_SIZE + EMAIL_SIZE)
+#define TIMESTAMP_OFFSET ((time_t)0)
+#define POSITION_OFFSET (TIMESTAMP_OFFSET + TIMESTAMP_SIZE)
+
+#define ROW_SIZE (TIMESTAMP_SIZE + POSITION_SIZE)
 
 void serialize_row(Row *source, void *destination);
 void deserialize_row(void *source, Row *destination);

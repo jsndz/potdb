@@ -7,37 +7,16 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+#include <position.h>
+#include <time.h>
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
 {
     statement->type = INSERT_STATEMENT;
-    const char *keyword = strtok(input_buffer->buffer, " ");
-    const char *id_STRING = strtok(NULL, " ");
-    const char *username = strtok(NULL, " ");
-    const char *email = strtok(NULL, " ");
-
-    (void)keyword;
-
-    if (id_STRING == NULL || username == NULL || email == NULL)
-    {
-        return PREPARE_SYNTAX_ERROR;
-    }
-    int id = atoi(id_STRING);
-    if (id < 0)
-    {
-        return PREPARE_NEGATIVE_ID;
-    }
-    if (strlen(username) >= COL_USERNAME_SIZE)
-    {
-        return PREPARE_STRING_TOO_LONG;
-    }
-    if (strlen(email) >= COL_EMAIL_SIZE)
-    {
-        return PREPARE_STRING_TOO_LONG;
-    }
-    statement->row_to_insert.id = id;
-    strcpy(statement->row_to_insert.username, username);
-    strcpy(statement->row_to_insert.email, email);
+    const time_t timestamp = time(NULL);
+    Position *pos = get_position(input_buffer);
+    statement->row_to_insert.timestamp = timestamp;
+    statement->row_to_insert.pos = *pos;
+    free(pos);
     return PREPARE_SUCCESS;
 }
 
@@ -76,7 +55,7 @@ PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
 ExecuteResult execute_insert(Statement *statement, Table *table)
 {
     Row *row_to_insert = &(statement->row_to_insert);
-    uint32_t key_to_insert = row_to_insert->id;
+    time_t key_to_insert = row_to_insert->timestamp;
     Cursor *cursor = table_find(table, key_to_insert);
     Transaction *t = GetCurrentTransaction();
 
@@ -102,7 +81,7 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
         }
     }
 
-    leaf_node_insert(cursor, row_to_insert->id, row_to_insert);
+    leaf_node_insert(cursor, row_to_insert->timestamp, row_to_insert);
 
     if (!IN_TRANSACTION)
     {

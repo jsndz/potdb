@@ -29,17 +29,17 @@ void db_close(Table *table);
 void free_table(Table *table);
 
 Cursor *table_start(Table *table);
-Cursor *table_find(Table *table, uint32_t key);
-Cursor *leaf_node_find(Table *table, uint32_t page_num, uint32_t key);
-Cursor *internal_node_find(Table *table, uint32_t key, uint32_t page_num);
-uint32_t internal_node_find_child(void *node, uint32_t key);
-void update_internal_node_key(void *node, uint32_t old_key, uint32_t new_key);
+Cursor *table_find(Table *table, time_t key);
+Cursor *leaf_node_find(Table *table, uint32_t page_num, time_t key);
+Cursor *internal_node_find(Table *table, time_t key, uint32_t page_num);
+uint32_t internal_node_find_child(void *node, time_t key);
+void update_internal_node_key(void *node, time_t old_key, time_t new_key);
 
 void *cursor_value(Cursor *cursor);
 void cursor_advance(Cursor *cursor);
 
-void leaf_node_insert(Cursor *cursor, uint32_t key, Row *value);
-void leaf_node_split_and_insert(Cursor *cursor, uint32_t key, Row *value);
+void leaf_node_insert(Cursor *cursor, time_t key, Row *value);
+void leaf_node_split_and_insert(Cursor *cursor, time_t key, Row *value);
 void internal_node_insert(Table *table, uint32_t parent_page_num, uint32_t child_page_num);
 void internal_node_split_and_insert(Table *table, uint32_t parent_page_num, uint32_t child_page_num);
 void create_new_root_node(Table *table, uint32_t right_child_page_num);
