@@ -72,10 +72,10 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
 
     if (cursor->cell_num < num_cells)
     {
-        uint32_t key_at_index = *leaf_node_key(node, cursor->cell_num);
+        time_t key_at_index = *leaf_node_key(node, cursor->cell_num);
         if (key_at_index == key_to_insert)
         {
-            printf("Duplicate key error: %d\n", key_to_insert);
+            printf("Duplicate key error: %ld\n", (long)key_to_insert);
             free(cursor);
             return EXECUTE_DUPLICATE_KEY;
         }

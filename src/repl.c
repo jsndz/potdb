@@ -23,18 +23,18 @@ InputBuffer *new_input_buffer()
 
 void print_prompt()
 {
-    printf("db>");
+    printf("potdb>");
 }
 
 void print_constants()
 {
     printf("Constants:\n");
-    printf("ROW_SIZE: %d\n", ROW_SIZE);
-    printf("COMMON_NODE_HEADER_SIZE: %d\n", COMMON_NODE_HEADER_SIZE);
-    printf("LEAF_NODE_HEADER_SIZE: %d\n", LEAF_NODE_HEADER_SIZE);
-    printf("LEAF_NODE_CELL_SIZE: %d\n", LEAF_NODE_CELL_SIZE);
-    printf("LEAF_NODE_SPACE_FOR_CELLS: %d\n", LEAF_NODE_SPACE_FOR_CELLS);
-    printf("LEAF_NODE_MAX_CELLS: %d\n", LEAF_NODE_MAX_CELLS);
+    printf("ROW_SIZE: %zu\n", (size_t)ROW_SIZE);
+    printf("COMMON_NODE_HEADER_SIZE: %zu\n", (size_t)COMMON_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_HEADER_SIZE: %zu\n", (size_t)LEAF_NODE_HEADER_SIZE);
+    printf("LEAF_NODE_CELL_SIZE: %zu\n", (size_t)LEAF_NODE_CELL_SIZE);
+    printf("LEAF_NODE_SPACE_FOR_CELLS: %zu\n", (size_t)LEAF_NODE_SPACE_FOR_CELLS);
+    printf("LEAF_NODE_MAX_CELLS: %zu\n", (size_t)LEAF_NODE_MAX_CELLS);
 }
 
 void indent(uint32_t level)

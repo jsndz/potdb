@@ -32,7 +32,7 @@ uint32_t *node_parent(void *node)
     return (uint32_t *)((char *)node + PARENT_POINTER_OFFSET);
 }
 
-uint32_t get_node_max_key(Pager *pager, void *node)
+time_t get_node_max_key(Pager *pager, void *node)
 {
     switch (get_node_type(node))
     {
@@ -57,9 +57,9 @@ void *leaf_node_cell(void *node, uint32_t cell_num)
     return (char *)node + LEAF_NODE_HEADER_SIZE + cell_num * LEAF_NODE_CELL_SIZE;
 }
 
-uint32_t *leaf_node_key(void *node, uint32_t cell_num)
+time_t *leaf_node_key(void *node, uint32_t cell_num)
 {
-    return (uint32_t *)leaf_node_cell(node, cell_num);
+    return (time_t *)leaf_node_cell(node, cell_num);
 }
 
 void *leaf_node_value(void *node, uint32_t cell_num)
@@ -134,7 +134,7 @@ uint32_t *internal_node_child(void *node, uint32_t child_num)
     }
 }
 
-uint32_t *internal_node_key(void *node, uint32_t key_num)
+time_t *internal_node_key(void *node, uint32_t key_num)
 {
-    return (uint32_t *)((char *)internal_node_cell(node, key_num) + INTERNAL_NODE_CHILD_SIZE);
+    return (time_t *)((char *)internal_node_cell(node, key_num) + INTERNAL_NODE_CHILD_SIZE);
 }

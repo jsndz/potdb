@@ -31,7 +31,7 @@ typedef enum
 #define INTERNAL_NODE_RIGHT_CHILD_OFFSET (INTERNAL_NODE_NUM_KEYS_OFFSET + INTERNAL_NODE_NUM_KEYS_SIZE)
 #define INTERNAL_NODE_HEADER_SIZE (COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_NUM_KEYS_SIZE + INTERNAL_NODE_RIGHT_CHILD_SIZE)
 
-#define INTERNAL_NODE_KEY_SIZE ((uint32_t)sizeof(uint32_t))
+#define INTERNAL_NODE_KEY_SIZE ((uint32_t)sizeof(time_t))
 #define INTERNAL_NODE_CHILD_SIZE ((uint32_t)sizeof(uint32_t))
 #define INTERNAL_NODE_CELL_SIZE (INTERNAL_NODE_CHILD_SIZE + INTERNAL_NODE_KEY_SIZE)
 #define INTERNAL_NODE_MAX_KEYS 3
@@ -42,7 +42,7 @@ typedef enum
 #define LEAF_NODE_NEXT_LEAF_OFFSET (LEAF_NODE_NUM_CELLS_OFFSET + LEAF_NODE_NUM_CELLS_SIZE)
 #define LEAF_NODE_HEADER_SIZE (COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE + LEAF_NODE_NEXT_LEAF_SIZE)
 
-#define LEAF_NODE_KEY_SIZE ((uint32_t)sizeof(uint32_t))
+#define LEAF_NODE_KEY_SIZE ((uint32_t)sizeof(time_t))
 #define LEAF_NODE_KEY_OFFSET 0
 #define LEAF_NODE_VALUE_SIZE (ROW_SIZE)
 #define LEAF_NODE_VALUE_OFFSET (LEAF_NODE_KEY_OFFSET + LEAF_NODE_KEY_SIZE)
@@ -58,12 +58,12 @@ void set_node_type(void *node, NodeType type);
 bool is_root_node(void *node);
 void set_root_node(void *node, bool is_root);
 uint32_t *node_parent(void *node);
-uint32_t get_node_max_key(Pager *pager, void *node);
+time_t get_node_max_key(Pager *pager, void *node);
 
 // Leaf Node Accessors
 uint32_t *leaf_node_num_cells(void *node);
 void *leaf_node_cell(void *node, uint32_t cell_num);
-uint32_t *leaf_node_key(void *node, uint32_t cell_num);
+time_t *leaf_node_key(void *node, uint32_t cell_num);
 void *leaf_node_value(void *node, uint32_t cell_num);
 uint32_t *leaf_node_next_leaf(void *node);
 void initialize_leaf_node(void *node);
@@ -73,7 +73,7 @@ uint32_t *internal_node_num_key(void *node);
 uint32_t *internal_node_right_child(void *node);
 uint32_t *internal_node_cell(void *node, uint32_t cell_num);
 uint32_t *internal_node_child(void *node, uint32_t child_num);
-uint32_t *internal_node_key(void *node, uint32_t key_num);
+time_t *internal_node_key(void *node, uint32_t key_num);
 void initialize_internal_node(void *node);
 
 #endif // NODE_H

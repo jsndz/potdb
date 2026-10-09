@@ -7,9 +7,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include<wal.h>
-#include<transaction.h>
-#include<row.h>
+#include "wal.h"
+#include "transaction.h"
+#include "row.h"
 
 int get_lsn(){
     return 0;
@@ -17,7 +17,7 @@ int get_lsn(){
 
 Logger* log_open(char* filename){
     Logger *logger = malloc(sizeof(Logger));
-    int fd = open(filename, 0, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+    int fd = open(filename, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
     if( fd == -1) {
         printf("Unable to open the file.\n");
         exit(EXIT_FAILURE);
@@ -48,7 +48,9 @@ Logger* log_open(char* filename){
 }
 
 void log_append(Logger *logger,uint32_t page_num ,void *payload){
-
+    (void)logger;
+    (void)page_num;
+    (void)payload;
 }
 
 

@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "row.h"
 #include "pager.h"
+#include "row.h"
 #include "node.h"
 
 typedef struct

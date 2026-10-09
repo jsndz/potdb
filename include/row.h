@@ -8,10 +8,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <position.h>
+#include "position.h"
 
 #define COL_USERNAME_SIZE sizeof(time_t)
-#define COL_EMAIL_SIZE size(Position)
+#define COL_EMAIL_SIZE sizeof(Position)
 
 #define size_of_attribute(Struct, Attribute) sizeof(((Struct *)0)->Attribute)
 

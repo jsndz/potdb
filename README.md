@@ -1,13 +1,19 @@
-# Building a sqlite clone with C
+# potDB
 
-## Description
+potDB is a lightweight key-value database for storing an object's position over time.
+**Time → Position**
 
-This project is a simple implementation of a SQLite-like database using C. The architecture consists of a front-end that processes SQL queries and a back-end that manages data storage using a B-tree structure.
+It is designed to efficiently record and retrieve where an object was at a given point in time.
 
-The Flow goes like this:
-Cursor->table->pager->file
-Each node is a page
-And each cell(key-value pair) is a row accept for internal node which point to another node
+## Architecture
+
+The architecture consists of a front-end that processes queries and a back-end that manages data storage using a B-tree structure.
+
+The flow goes like this:
+`Cursor -> Table -> Pager -> File`
+
+- Each node is a page.
+- Each cell (key-value pair) is a row, except for internal nodes which point to another node.
 
 ## Table of Contents
 
@@ -20,7 +26,7 @@ And each cell(key-value pair) is a row accept for internal node which point to a
 - [Phase 7: Binary Search]
 - [Phase 8: Node Splitting]
 - [Phase 9: Recursively Searching the B-Tree]
-- [Phase 10:Scanning a Multi-Level B-Tree Sequentially]
+- [Phase 10: Scanning a Multi-Level B-Tree Sequentially]
 - [Phase 11: Updating Parent Node After a Split]
 - [Phase 12: Splitting Internal Nodes]
 - [Notes]
@@ -33,7 +39,7 @@ To build and run the project, follow these steps:
 
    ```bash
    git clone <repository-url>
-   cd <repository-directory>
+   cd potdb
    ```
 
 2. Compile the code:
@@ -41,17 +47,17 @@ To build and run the project, follow these steps:
    ```bash
    make
    # or manually compile with:
-   gcc -Wall -Wextra -Iinclude src/*.c -o db
+   gcc -Wall -Wextra -Iinclude src/*.c -o potdb
    ```
 
 3. Run the database:
    ```bash
-   ./db <database-file>
+   ./potdb <database-file>
    ```
 
 ## Usage
 
-You can interact with the database using SQL commands. Here are some examples:
+You can interact with the database using commands. Here are some examples:
 
 - To insert a new row:
 
@@ -72,6 +78,6 @@ You can interact with the database using SQL commands. Here are some examples:
   .exit
   ```
 
-### A detailed explaination is provided in the logs.md
+### A detailed explanation is provided in logs.md
 
 ---
