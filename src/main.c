@@ -4,6 +4,7 @@
 #include "statement.h"
 #include "btree.h"
 #include "transaction.h"
+#include "wal.h"
 
 
 int main(int argc, char *argv[])
@@ -13,9 +14,10 @@ int main(int argc, char *argv[])
         printf("Need to enter the File name.\n");
         exit(EXIT_FAILURE);
     }
-    char *filename = argv[1];
-    Table *table = db_open(filename);
-    
+    char *db_filename = argv[1];
+    char *log_filename=  argv[2];
+    Table *table = db_open(db_filename);
+    Logger *logger = log_open(log_filename);
     InputBuffer *inputBuffer = new_input_buffer();
 
     while (true)
@@ -25,7 +27,7 @@ int main(int argc, char *argv[])
 
         if (inputBuffer->buffer[0] == '.')
         {
-            switch (do_meta_command(inputBuffer, table))
+            switch (do_meta_command(inputBuffer, table,logger))
             {
             case (META_COMMAND_SUCCESS):
                 continue;
@@ -54,7 +56,7 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        switch (execute_statement(&statement, table))
+        switch (execute_statement(&statement, table, logger))
         {
         case EXECUTE_SUCCESS:
             printf("Executed.\n");

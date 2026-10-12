@@ -78,7 +78,7 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
     {
         pager_flush(cursor->table->pager, cursor->page_num);
     }
-
+    
     free(cursor);
     return EXECUTE_SUCCESS;
 }
@@ -98,7 +98,7 @@ ExecuteResult execute_select(Statement *statement, Table *table)
     return EXECUTE_SUCCESS;
 }
 
-ExecuteResult execute_statement(Statement *statement, Table *table)
+ExecuteResult execute_statement(Statement *statement, Table *table,Logger *logger)
 {
     switch (statement->type)
     {

@@ -11,9 +11,6 @@
 #include "transaction.h"
 #include "row.h"
 
-int get_lsn(){
-    return 0;
-}
 
 Logger* log_open(char* filename){
     Logger *logger =(Logger*) malloc(sizeof(Logger));
@@ -66,17 +63,11 @@ Logger* log_open(char* filename){
     return logger;
 }
 
-void log_append(Logger *logger,uint32_t page_num ,void *payload){
-    (void)logger;
-    (void)page_num;
-    (void)payload;
-}
 
 
-Log* StatementToLog(Statement *s, uint32_t page_num) {
+Log* StatementToLog(Statement *s,uint32_t lsn) {
     Log* log = malloc(sizeof(Log));
-    log->LSN = get_lsn();
-    log->PageId = page_num;
+    log->LSN = lsn;
     switch (s->type) {
         case TRANSACTION_BEGIN:
             log->type = LOG_RECORD_BEGIN;
@@ -105,7 +96,6 @@ void serialize_log(Log *source, void *destination)
 {
     memcpy((char *)destination + LSN_OFFSET, &(source->LSN), LSN_SIZE);
     memcpy((char *)destination + TXN_OFFSET, &(source->txn), TXN_SIZE);
-    memcpy((char *)destination + PAGE_ID_OFFSET, &(source->PageId), PAGE_ID_SIZE);
     uint32_t type_val = (uint32_t)source->type;
     memcpy((char *)destination + TYPE_OFFSET, &type_val, TYPE_SIZE);
     if (source->row != NULL) {
@@ -117,7 +107,6 @@ void deserialize_log(void *source, Log *destination)
 {
     memcpy(&(destination->LSN), (char *)source + LSN_OFFSET, LSN_SIZE);
     memcpy(&(destination->txn), (char *)source + TXN_OFFSET, TXN_SIZE);
-    memcpy(&(destination->PageId), (char *)source + PAGE_ID_OFFSET, PAGE_ID_SIZE);
     
     uint32_t type_val;
     memcpy(&type_val, (char *)source + TYPE_OFFSET, TYPE_SIZE);
@@ -129,3 +118,31 @@ void deserialize_log(void *source, Log *destination)
     deserialize_row((char *)source + LOG_ROW_OFFSET, destination->row);
 }
 
+
+void log_flush(Logger *logger){
+    if (logger->buffer_offset == 0) {
+        return;
+    }
+
+    ssize_t bytes_written = write(logger->file_descriptor, logger->buffer, logger->buffer_offset);
+    if (bytes_written == -1){
+        printf("error in writing.\n");
+        exit(EXIT_FAILURE);
+    }
+    logger->buffer_offset = 0;
+}
+
+
+void log_append(Logger *logger, Statement *statement) {
+    if(logger->buffer_offset + LOG_SIZE > WAL_BUFFER_SIZE){
+        log_flush(logger);
+    }
+    Log *log = StatementToLog(statement,logger->next_lsn);
+    logger->next_lsn++;
+    serialize_log(log,logger->buffer+logger->buffer_offset);
+    logger->buffer_offset += LOG_SIZE;
+    free(log);
+    if (statement->type == TRANSACTION_COMMIT) {
+        log_flush(logger);
+    }
+}

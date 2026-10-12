@@ -6,6 +6,7 @@
 #include <string.h>
 #include "row.h"
 #include "btree.h"
+#include "wal.h"
 
 typedef struct InputBuffer InputBuffer;
 
@@ -34,7 +35,7 @@ typedef enum
     TRANSACTION_ROLLBACK,
 } StatementType;
 
-typedef struct
+typedef struct Statement
 {
     StatementType type;
     Row row_to_insert;
@@ -42,7 +43,7 @@ typedef struct
 
 PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement);
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement);
-ExecuteResult execute_statement(Statement *statement, Table *table);
+ExecuteResult execute_statement(Statement *statement, Table *table,Logger *logger);
 ExecuteResult execute_insert(Statement *statement, Table *table);
 ExecuteResult execute_select(Statement *statement, Table *table);
 

@@ -5,9 +5,6 @@
 #include <time.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include "position.h"
 
 #define COL_USERNAME_SIZE sizeof(time_t)

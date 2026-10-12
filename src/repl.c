@@ -1,5 +1,6 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#include "wal.h"
 #endif
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
@@ -11,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
+#include<wal.h>
 InputBuffer *new_input_buffer()
 {
     InputBuffer *input_buffer = (InputBuffer *)malloc(sizeof(InputBuffer));
@@ -63,7 +64,7 @@ void close_input_buffer(InputBuffer *inputBuffer)
     free(inputBuffer);
 }
 
-MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table)
+MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table,Logger *logger)
 {
     if (strcmp(input_buffer->buffer, ".exit") == 0)
     {
