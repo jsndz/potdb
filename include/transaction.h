@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "pager.h"
+#include "btree.h"
+#include "statement.h"
 
 typedef enum
 {
@@ -24,6 +26,11 @@ typedef struct {
 extern int transaction_id;
 extern bool IN_TRANSACTION;
 extern Transaction *txn;
+
+ExecuteResult txn_begin(Table *table);
+ExecuteResult txn_commit(Table *table);
+ExecuteResult txn_rollback(Table *table);
+void txn_record_page_change(uint32_t page_num);
 
 void start_transaction(Pager *pager);
 Transaction *GetCurrentTransaction(void);

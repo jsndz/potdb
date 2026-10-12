@@ -3,11 +3,17 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "statement.h"
 #include "row.h"
 
 #define WAL_FRAME_SIZE 4096
 #define WAL_MAX_PAGES 100
+
+typedef enum {
+    LOG_RECORD_BEGIN = 0,
+    LOG_RECORD_COMMIT = 1,
+    LOG_RECORD_ROLLBACK = 2,
+    LOG_RECORD_INSERT = 3
+} LogRecordType;
 
 typedef struct {
     int file_descriptor;
@@ -19,7 +25,7 @@ typedef struct {
 typedef struct {
     uint32_t LSN;
     uint32_t txn;
-    StatementType type;
+    LogRecordType type;
     uint32_t PageId;
     Row *row;
 } Log;
@@ -38,6 +44,8 @@ typedef struct {
 #define LOG_ROW_OFFSET (TYPE_OFFSET + TYPE_SIZE)
 #define LOG_SIZE (LOG_ROW_OFFSET + LOG_ROW_SIZE)
 
+Logger* log_open(char* filename);
+void log_append(Logger *logger, uint32_t page_num, void *payload);
 void serialize_log(Log *source, void *destination);
 void deserialize_log(void *source, Log *destination);
 

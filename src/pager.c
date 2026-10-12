@@ -93,3 +93,70 @@ void pager_flush(Pager *pager, uint32_t page_num)
         exit(EXIT_FAILURE);
     }
 }
+
+void pager_flush_all(Pager *pager)
+{
+    if (pager == NULL) return;
+    for (uint32_t i = 0; i < pager->num_pages; i++)
+    {
+        if (pager->pages[i] != NULL)
+        {
+            pager_flush(pager, i);
+        }
+    }
+}
+
+void pager_reload_page(Pager *pager, uint32_t page_num)
+{
+    if (pager == NULL || page_num >= pager->num_pages || pager->pages[page_num] == NULL)
+    {
+        return;
+    }
+    off_t offset = lseek(pager->file_descriptor, page_num * PAGE_SIZE, SEEK_SET);
+    if (offset == -1)
+    {
+        printf("Error seeking for page reload.\n");
+        exit(EXIT_FAILURE);
+    }
+    ssize_t bytes_read = read(pager->file_descriptor, pager->pages[page_num], PAGE_SIZE);
+    (void)bytes_read;
+}
+
+void pager_truncate(Pager *pager, uint32_t new_num_pages)
+{
+    if (pager == NULL) return;
+    for (uint32_t p = new_num_pages; p < pager->num_pages; p++)
+    {
+        if (pager->pages[p] != NULL)
+        {
+            free(pager->pages[p]);
+            pager->pages[p] = NULL;
+        }
+    }
+    pager->num_pages = new_num_pages;
+}
+
+void pager_close(Pager *pager)
+{
+    if (pager == NULL) return;
+
+    pager_flush_all(pager);
+
+    int result = close(pager->file_descriptor);
+    if (result == -1)
+    {
+        printf("Error closing db file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    for (uint32_t i = 0; i < TABLE_MAX_PAGES; i++)
+    {
+        if (pager->pages[i] != NULL)
+        {
+            free(pager->pages[i]);
+            pager->pages[i] = NULL;
+        }
+    }
+    free(pager);
+}
+

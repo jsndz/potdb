@@ -54,21 +54,32 @@ void log_append(Logger *logger,uint32_t page_num ,void *payload){
 }
 
 
-Log* StatementToLog(Statement *s,uint32_t page_num ){
+Log* StatementToLog(Statement *s, uint32_t page_num) {
     Log* log = malloc(sizeof(Log));
-    log->LSN= get_lsn();
+    log->LSN = get_lsn();
     log->PageId = page_num;
-    log->type = s->type;
+    switch (s->type) {
+        case TRANSACTION_BEGIN:
+            log->type = LOG_RECORD_BEGIN;
+            break;
+        case TRANSACTION_COMMIT:
+            log->type = LOG_RECORD_COMMIT;
+            break;
+        case TRANSACTION_ROLLBACK:
+            log->type = LOG_RECORD_ROLLBACK;
+            break;
+        default:
+            log->type = LOG_RECORD_INSERT;
+            break;
+    }
     log->row = &(s->row_to_insert);
-    if(IN_TRANSACTION){
+    if (IN_TRANSACTION) {
         log->txn = transaction_id;
-    }else {
-        log->txn =0;
+    } else {
+        log->txn = 0;
     }
     return log;
 }
-
-
 
 
 void serialize_log(Log *source, void *destination)
@@ -91,7 +102,7 @@ void deserialize_log(void *source, Log *destination)
     
     uint32_t type_val;
     memcpy(&type_val, (char *)source + TYPE_OFFSET, TYPE_SIZE);
-    destination->type = (StatementType)type_val;
+    destination->type = (LogRecordType)type_val;
 
     if (destination->row == NULL) {
         destination->row = malloc(sizeof(Row));
