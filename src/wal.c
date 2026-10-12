@@ -83,8 +83,8 @@ Log* StatementToLog(Statement *s,uint32_t lsn) {
             break;
     }
     log->row = &(s->row_to_insert);
-    if (IN_TRANSACTION) {
-        log->txn = transaction_id;
+    if (IN_TRANSACTION && txn != NULL) {
+        log->txn = txn->ID;
     } else {
         log->txn = 0;
     }
@@ -98,8 +98,10 @@ void serialize_log(Log *source, void *destination)
     memcpy((char *)destination + TXN_OFFSET, &(source->txn), TXN_SIZE);
     uint32_t type_val = (uint32_t)source->type;
     memcpy((char *)destination + TYPE_OFFSET, &type_val, TYPE_SIZE);
-    if (source->row != NULL) {
+    if (source->type == LOG_RECORD_INSERT && source->row != NULL) {
         serialize_row(source->row, (char *)destination + LOG_ROW_OFFSET);
+    } else {
+        memset((char *)destination + LOG_ROW_OFFSET, 0, LOG_ROW_SIZE);
     }
 }
 
@@ -142,7 +144,7 @@ void log_append(Logger *logger, Statement *statement) {
     serialize_log(log,logger->buffer+logger->buffer_offset);
     logger->buffer_offset += LOG_SIZE;
     free(log);
-    if (statement->type == TRANSACTION_COMMIT) {
+    if (statement->type == TRANSACTION_COMMIT || statement->type == TRANSACTION_ROLLBACK) {
         log_flush(logger);
     }
 }

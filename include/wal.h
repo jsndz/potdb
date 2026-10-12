@@ -43,6 +43,7 @@ typedef struct {
 typedef struct Statement Statement;
 
 Logger* log_open(char* filename);
+void log_flush(Logger *logger);
 void log_append(Logger *logger, Statement *statement);
 Log* StatementToLog(Statement *s,uint32_t lsn);
 void serialize_log(Log *source, void *destination);

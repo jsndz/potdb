@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "position.h"
+#include "wal.h"
 #include <time.h>
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
 {
@@ -50,8 +51,9 @@ PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
     }
 }
 
-ExecuteResult execute_insert(Statement *statement, Table *table)
+ExecuteResult execute_insert(Statement *statement, Table *table, Logger *logger)
 {
+    (void)logger;
     Row *row_to_insert = &(statement->row_to_insert);
     time_t key_to_insert = row_to_insert->timestamp;
     Cursor *cursor = table_find(table, key_to_insert);
@@ -73,12 +75,13 @@ ExecuteResult execute_insert(Statement *statement, Table *table)
     }
 
     leaf_node_insert(cursor, row_to_insert->timestamp, row_to_insert);
-
+    log_append(logger, statement);
     if (!IN_TRANSACTION)
     {
-        pager_flush(cursor->table->pager, cursor->page_num);
+        
+        log_flush(logger);
     }
-    
+
     free(cursor);
     return EXECUTE_SUCCESS;
 }
@@ -98,20 +101,20 @@ ExecuteResult execute_select(Statement *statement, Table *table)
     return EXECUTE_SUCCESS;
 }
 
-ExecuteResult execute_statement(Statement *statement, Table *table,Logger *logger)
+ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logger)
 {
     switch (statement->type)
     {
     case SELECT_STATEMENT:
         return execute_select(statement, table);
     case INSERT_STATEMENT:
-        return execute_insert(statement, table);
+        return execute_insert(statement, table, logger);
     case TRANSACTION_BEGIN:
-        return txn_begin(table);
+        return txn_begin(table, logger);
     case TRANSACTION_COMMIT:
-        return txn_commit(table);
+        return txn_commit(table, logger);
     case TRANSACTION_ROLLBACK:
-        return txn_rollback(table);
+        return txn_rollback(table, logger);
     default:
         return EXECUTE_SUCCESS;
     }

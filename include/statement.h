@@ -43,8 +43,8 @@ typedef struct Statement
 
 PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement);
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement);
-ExecuteResult execute_statement(Statement *statement, Table *table,Logger *logger);
-ExecuteResult execute_insert(Statement *statement, Table *table);
+ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logger);
+ExecuteResult execute_insert(Statement *statement, Table *table, Logger *logger);
 ExecuteResult execute_select(Statement *statement, Table *table);
 
 #endif // STATEMENT_H

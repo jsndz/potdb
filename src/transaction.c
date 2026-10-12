@@ -37,12 +37,14 @@ void start_transaction(Pager *pager) {
     IN_TRANSACTION = true;
 }
 
-ExecuteResult txn_begin(Table *table) {
+ExecuteResult txn_begin(Table *table, Logger *logger) {
     start_transaction(table->pager);
+    Statement stmt = {.type = TRANSACTION_BEGIN};
+    log_append(logger, &stmt);
     return EXECUTE_SUCCESS;
 }
 
-ExecuteResult txn_commit(Table *table) {
+ExecuteResult txn_commit(Table *table, Logger *logger) {
     Transaction *t = GetCurrentTransaction();
     if (!IN_TRANSACTION || t == NULL) {
         printf("No active transaction to commit.\n");
@@ -50,6 +52,9 @@ ExecuteResult txn_commit(Table *table) {
     }
 
     t->state = PARTIALLY_COMMITTED;
+
+    Statement stmt = {.type = TRANSACTION_COMMIT};
+    log_append(logger, &stmt);
 
     // Flush dirty pages to disk (FORCE policy).
     // Note: When WAL is implemented, this is where wal_log_commit() & wal_flush()
@@ -63,7 +68,7 @@ ExecuteResult txn_commit(Table *table) {
     return EXECUTE_SUCCESS;
 }
 
-ExecuteResult txn_rollback(Table *table) {
+ExecuteResult txn_rollback(Table *table, Logger *logger) {
     Transaction *t = GetCurrentTransaction();
     Pager *pager = table->pager;
 
@@ -71,6 +76,9 @@ ExecuteResult txn_rollback(Table *table) {
         printf("No active transaction to rollback.\n");
         return EXECUTE_SUCCESS;
     }
+
+    Statement stmt = {.type = TRANSACTION_ROLLBACK};
+    log_append(logger, &stmt);
 
     // Restore pages modified during this transaction.
     // Note: When WAL is implemented, this will be replaced by replaying undo records.

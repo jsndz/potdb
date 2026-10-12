@@ -27,9 +27,9 @@ extern int transaction_id;
 extern bool IN_TRANSACTION;
 extern Transaction *txn;
 
-ExecuteResult txn_begin(Table *table);
-ExecuteResult txn_commit(Table *table);
-ExecuteResult txn_rollback(Table *table);
+ExecuteResult txn_begin(Table *table, Logger *logger);
+ExecuteResult txn_commit(Table *table, Logger *logger);
+ExecuteResult txn_rollback(Table *table, Logger *logger);
 void txn_record_page_change(uint32_t page_num);
 
 void start_transaction(Pager *pager);
