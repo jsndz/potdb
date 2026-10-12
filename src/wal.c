@@ -16,34 +16,53 @@ int get_lsn(){
 }
 
 Logger* log_open(char* filename){
-    Logger *logger = malloc(sizeof(Logger));
+    Logger *logger =(Logger*) malloc(sizeof(Logger));
     int fd = open(filename, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
     if( fd == -1) {
-        printf("Unable to open the file.\n");
+        perror("open");
+        free(logger);
         exit(EXIT_FAILURE);
     }
-    uint32_t file_length = lseek(fd, 0, SEEK_END);
-    logger->file_length=file_length;
+    off_t file_length = lseek(fd, 0, SEEK_END);
+    if (file_length == -1) {
+        perror("lseek");
+        close(fd);
+        free(logger);
+        exit(EXIT_FAILURE);
+    }
+
+    if (file_length % LOG_SIZE != 0) {
+        fprintf(stderr, "Corrupted WAL file\n");
+        close(fd);
+        free(logger);
+        exit(EXIT_FAILURE);
+    }
+
+    logger->buffer_offset = 0;
+    memset(logger->buffer,0,WAL_BUFFER_SIZE);
     logger->file_descriptor = fd;
-    if (file_length % WAL_FRAME_SIZE != 0)
-    {
-        printf("Corrupt file. \n");
-        exit(EXIT_FAILURE);
-    }
-    logger->num_pages = file_length / WAL_FRAME_SIZE;
-    for (uint32_t i=0;i<WAL_MAX_PAGES;i++){
-        logger->log_pages[i] =NULL;
-    }
-    lseek(fd,0,SEEK_SET);
-    for (uint32_t i=0;i<logger->num_pages;i++){
-        void *framebuf =  malloc(WAL_FRAME_SIZE);
-        ssize_t bytes_read = read(fd, framebuf, WAL_FRAME_SIZE);
-        if (bytes_read != WAL_FRAME_SIZE) {
-            printf("Failed to read WAL frame %d into memory.\n", i);
+    logger->next_lsn = 0;
+    if(file_length != 0){
+        char buf[LOG_SIZE];
+        off_t  byte_offset = file_length - LOG_SIZE;
+        if (lseek(fd, byte_offset, SEEK_SET) == -1) {
+            perror("lseek");
+            close(fd);
+            free(logger);
             exit(EXIT_FAILURE);
         }
-        logger->log_pages[i]= framebuf;
+        ssize_t bytes_read= read(fd,buf,LOG_SIZE);
+        if (bytes_read != LOG_SIZE) {
+            perror("read");
+            close(fd);
+            free(logger);
+            exit(EXIT_FAILURE);
+        } 
+        Log *lastLog =(Log*) malloc(sizeof(Log));
+        deserialize_log(buf,lastLog);
+        logger->next_lsn = lastLog->LSN;
     }
+
     return logger;
 }
 
@@ -109,3 +128,4 @@ void deserialize_log(void *source, Log *destination)
     }
     deserialize_row((char *)source + LOG_ROW_OFFSET, destination->row);
 }
+

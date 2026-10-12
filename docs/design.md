@@ -53,3 +53,61 @@ Yes, absolutely. If you are writing data every millisecond (~1,000 writes/second
    Suitability for 1ms writes                              | ❌ Prone to bottlenecks and lag                         | Designed specifically for this
 
   If you plan to ingest data at millisecond intervals, implementing the WAL (using the log structures you started in wal.h and wal.c) is definitely the right architectural move.
+
+  ### Part 1: "The changes stay in RAM until commit anyway, so what is the point of a buffer?"
+
+  The buffer IS the place in RAM where they stay!
+  When you execute:
+    BEGIN;
+    INSERT ... -- (1)
+    INSERT ... -- (2)
+    INSERT ... -- (3)
+    COMMIT;    -- (4)
+
+  At step (1), you must record what just happened. You have two choices:
+
+  • Choice A (No Buffer): Immediately call the OS kernel: write(fd, "INSERT...", 48) right at step (1), and again at (2), and again at (3).
+  (This causes disk / OS syscall overhead on every single query).
+  • Choice B (With Buffer): Put "INSERT..." into a byte array in RAM (write_buffer) at steps (1), (2), and (3). At step (4) (COMMIT), you write all of them to disk in one batch.
+
+  │ In short: The write_buffer is simply the data structure in RAM that holds your serialized log entries so you don't call the operating system on every individual query.
+  ──────
+  ### Part 2: "How can you push to disk when the buffer is full before commit?"
+
+  Imagine a huge transaction doing 1,000,000 inserts. No matter how big your RAM buffer is, it will fill up before the user types COMMIT.
+
+  So, can you push to disk before commit? Yes, absolutely! It is 100% safe.
+
+  Here is why:
+
+  #### 1. Disk log records are meaningless without a COMMIT record
+  Every record in the WAL contains the Transaction ID:
+
+    [Txn 42 | INSERT | Key: 10, Pos: 20]
+    [Txn 42 | INSERT | Key: 20, Pos: 30]
+  Even if these records are pushed to disk because the buffer filled up, the database knows Transaction 42 is still uncommitted.
+  #### 2. What happens if the database crashes right after that push?
+
+  When the database restarts, it runs Crash Recovery:
+
+  1. It reads the WAL file from disk.
+  2. It sees:
+    Record 1: Txn 42, INSERT (Key: 10)
+    Record 2: Txn 42, INSERT (Key: 20)
+    <END OF FILE / CRASH>
+  3. It asks: "Did Txn 42 ever write a COMMIT record?"
+  4. Answer: No.
+  5. The recovery engine discards or rolls back those inserts. To the outside world, it's as if Transaction 42 never happened.
+
+  #### 3. The COMMIT record is the "Atomic Switch"
+
+  A transaction is only legally committed the exact microsecond its COMMIT record hits the disk:
+
+    [Txn 42 | INSERT]  ──┐
+    [Txn 42 | INSERT]    │ -> Uncommitted (ignored on crash)
+    [Txn 42 | INSERT]  ──┘
+    ─────────────────────────────────────────────────────────────
+    [Txn 42 | COMMIT]  ───> THE ATOMIC SWITCH! Now durable forever.
+
+  If power cuts off 1 nanosecond before the COMMIT record is flushed, the entire transaction is rolled back.
+  If power cuts off 1 nanosecond after, the entire transaction is preserved and recovered.
