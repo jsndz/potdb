@@ -38,11 +38,23 @@ time_t get_node_max_key(Pager *pager, void *node)
     {
     case NODE_INTERNAL:
     {
-        void *right_child = get_page(pager, *internal_node_right_child(node));
+        uint32_t right_child_page = *internal_node_right_child(node);
+        if (right_child_page == INVALID_PAGE_NUM)
+        {
+            return 0;
+        }
+        void *right_child = get_page(pager, right_child_page);
         return get_node_max_key(pager, right_child);
     }
     case NODE_LEAF:
-        return *leaf_node_key(node, *leaf_node_num_cells(node) - 1);
+    {
+        uint32_t num_cells = *leaf_node_num_cells(node);
+        if (num_cells == 0)
+        {
+            return 0;
+        }
+        return *leaf_node_key(node, num_cells - 1);
+    }
     }
     return 0;
 }

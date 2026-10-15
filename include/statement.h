@@ -30,6 +30,7 @@ typedef enum
 {
     SELECT_STATEMENT,
     INSERT_STATEMENT,
+    DELETE_STATEMENT,
     TRANSACTION_BEGIN,
     TRANSACTION_COMMIT,
     TRANSACTION_ROLLBACK,
@@ -39,12 +40,15 @@ typedef struct Statement
 {
     StatementType type;
     Row row_to_insert;
+    time_t key_to_delete;
 } Statement;
 
 PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement);
 PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement);
+PrepareResult prepare_delete(InputBuffer *input_buffer, Statement *statement);
 ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logger);
 ExecuteResult execute_insert(Statement *statement, Table *table, Logger *logger);
+ExecuteResult execute_delete(Statement *statement, Table *table);
 ExecuteResult execute_select(Statement *statement, Table *table);
 
 #endif // STATEMENT_H

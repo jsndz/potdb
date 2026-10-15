@@ -1,8 +1,10 @@
 #include "btree.h"
+#include "pager.h"
 #include "repl.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 Table *db_open(const char *fileName)
@@ -35,7 +37,6 @@ void free_table(Table *table)
 {
     db_close(table);
 }
-
 
 Cursor *leaf_node_find(Table *table, uint32_t page_num, time_t key)
 {
@@ -327,6 +328,440 @@ void leaf_node_insert(Cursor *cursor, time_t key, Row *value)
     serialize_row(value, leaf_node_value(node, cursor->cell_num));
 
     printf("Inserted key %ld at cell %d\n", (long)key, cursor->cell_num);
+}
+
+static void internal_node_remove_child(Table *table, uint32_t parent_page_num, uint32_t child_page_num);
+static void internal_node_handle_underflow(Table *table, uint32_t page_num);
+
+static uint32_t internal_node_find_child_index(void *parent, uint32_t child_page_num)
+{
+    uint32_t num_keys = *internal_node_num_key(parent);
+    for (uint32_t i = 0; i < num_keys; i++)
+    {
+        if (*internal_node_cell(parent, i) == child_page_num)
+        {
+            return i;
+        }
+    }
+    uint32_t *right_child = internal_node_right_child(parent);
+    if (*right_child != INVALID_PAGE_NUM && *right_child == child_page_num)
+    {
+        return num_keys;
+    }
+    return INVALID_PAGE_NUM;
+}
+
+static void update_ancestor_keys(Table *table, uint32_t page_num, time_t old_max, time_t new_max)
+{
+    void *node = get_page(table->pager, page_num);
+    if (is_root_node(node))
+    {
+        return;
+    }
+
+    uint32_t parent_page_num = *node_parent(node);
+    void *parent = get_page(table->pager, parent_page_num);
+    uint32_t num_keys = *internal_node_num_key(parent);
+    uint32_t child_index = internal_node_find_child_index(parent, page_num);
+
+    if (child_index == INVALID_PAGE_NUM)
+    {
+        return;
+    }
+
+    if (child_index < num_keys)
+    {
+
+        *internal_node_key(parent, child_index) = new_max;
+    }
+    else
+    {
+
+        update_ancestor_keys(table, parent_page_num, old_max, new_max);
+    }
+}
+
+static void internal_node_handle_underflow(Table *table, uint32_t page_num)
+{
+    void *node = get_page(table->pager, page_num);
+    if (is_root_node(node))
+    {
+        return;
+    }
+
+    uint32_t parent_page = *node_parent(node);
+    void *parent = get_page(table->pager, parent_page);
+    uint32_t p_keys = *internal_node_num_key(parent);
+    uint32_t child_idx = internal_node_find_child_index(parent, page_num);
+
+    if (child_idx > 0)
+    {
+        uint32_t left_sibling_page = *internal_node_child(parent, child_idx - 1);
+        void *left_sibling = get_page(table->pager, left_sibling_page);
+        uint32_t left_keys = *internal_node_num_key(left_sibling);
+
+        if (left_keys > INTERNAL_NODE_MIN_KEYS)
+        {
+
+            uint32_t borrowed_page = *internal_node_right_child(left_sibling);
+            void *borrowed_child = get_page(table->pager, borrowed_page);
+            *node_parent(borrowed_child) = page_num;
+
+            uint32_t node_keys = *internal_node_num_key(node);
+            for (uint32_t i = node_keys; i > 0; i--)
+            {
+                memcpy(internal_node_cell(node, i), internal_node_cell(node, i - 1), INTERNAL_NODE_CELL_SIZE);
+            }
+
+            *internal_node_child(node, 0) = borrowed_page;
+            *internal_node_key(node, 0) = get_node_max_key(table->pager, borrowed_child);
+            *internal_node_num_key(node) = node_keys + 1;
+
+            *internal_node_right_child(left_sibling) = *internal_node_child(left_sibling, left_keys - 1);
+            *internal_node_num_key(left_sibling) = left_keys - 1;
+
+            *internal_node_key(parent, child_idx - 1) = get_node_max_key(table->pager, left_sibling);
+            return;
+        }
+    }
+
+    if (child_idx < p_keys)
+    {
+        uint32_t right_sibling_page = *internal_node_child(parent, child_idx + 1);
+        void *right_sibling = get_page(table->pager, right_sibling_page);
+        uint32_t right_keys = *internal_node_num_key(right_sibling);
+
+        if (right_keys > INTERNAL_NODE_MIN_KEYS)
+        {
+            uint32_t node_keys = *internal_node_num_key(node);
+            uint32_t old_right_page = *internal_node_right_child(node);
+            void *old_right_child = get_page(table->pager, old_right_page);
+
+            *internal_node_child(node, node_keys) = old_right_page;
+            *internal_node_key(node, node_keys) = get_node_max_key(table->pager, old_right_child);
+
+            uint32_t borrowed_page = *internal_node_child(right_sibling, 0);
+            void *borrowed_child = get_page(table->pager, borrowed_page);
+            *node_parent(borrowed_child) = page_num;
+            *internal_node_right_child(node) = borrowed_page;
+            *internal_node_num_key(node) = node_keys + 1;
+
+            for (uint32_t i = 0; i < right_keys - 1; i++)
+            {
+                memcpy(internal_node_cell(right_sibling, i), internal_node_cell(right_sibling, i + 1), INTERNAL_NODE_CELL_SIZE);
+            }
+            *internal_node_num_key(right_sibling) = right_keys - 1;
+
+            *internal_node_key(parent, child_idx) = get_node_max_key(table->pager, node);
+            return;
+        }
+    }
+
+    if (child_idx > 0)
+    {
+
+        uint32_t left_sibling_page = *internal_node_child(parent, child_idx - 1);
+        void *left_sibling = get_page(table->pager, left_sibling_page);
+        uint32_t left_keys = *internal_node_num_key(left_sibling);
+
+        uint32_t left_right_page = *internal_node_right_child(left_sibling);
+        void *left_right_child = get_page(table->pager, left_right_page);
+        *internal_node_child(left_sibling, left_keys) = left_right_page;
+        *internal_node_key(left_sibling, left_keys) = get_node_max_key(table->pager, left_right_child);
+        left_keys++;
+
+        uint32_t node_keys = *internal_node_num_key(node);
+        for (uint32_t i = 0; i < node_keys; i++)
+        {
+            uint32_t ch_page = *internal_node_child(node, i);
+            void *ch = get_page(table->pager, ch_page);
+            *node_parent(ch) = left_sibling_page;
+
+            *internal_node_child(left_sibling, left_keys) = ch_page;
+            *internal_node_key(left_sibling, left_keys) = *internal_node_key(node, i);
+            left_keys++;
+        }
+
+        uint32_t node_right_page = *internal_node_right_child(node);
+        void *node_right_child = get_page(table->pager, node_right_page);
+        *node_parent(node_right_child) = left_sibling_page;
+        *internal_node_right_child(left_sibling) = node_right_page;
+        *internal_node_num_key(left_sibling) = left_keys;
+
+        internal_node_remove_child(table, parent_page, page_num);
+    }
+    else
+    {
+
+        uint32_t right_sibling_page = *internal_node_child(parent, 1);
+        void *right_sibling = get_page(table->pager, right_sibling_page);
+        uint32_t node_keys = *internal_node_num_key(node);
+
+        uint32_t node_right_page = *internal_node_right_child(node);
+        void *node_right_child = get_page(table->pager, node_right_page);
+        *internal_node_child(node, node_keys) = node_right_page;
+        *internal_node_key(node, node_keys) = get_node_max_key(table->pager, node_right_child);
+        node_keys++;
+
+        uint32_t right_keys = *internal_node_num_key(right_sibling);
+        for (uint32_t i = 0; i < right_keys; i++)
+        {
+            uint32_t ch_page = *internal_node_child(right_sibling, i);
+            void *ch = get_page(table->pager, ch_page);
+            *node_parent(ch) = page_num;
+
+            *internal_node_child(node, node_keys) = ch_page;
+            *internal_node_key(node, node_keys) = *internal_node_key(right_sibling, i);
+            node_keys++;
+        }
+
+        uint32_t right_right_page = *internal_node_right_child(right_sibling);
+        void *right_right_child = get_page(table->pager, right_right_page);
+        *node_parent(right_right_child) = page_num;
+        *internal_node_right_child(node) = right_right_page;
+        *internal_node_num_key(node) = node_keys;
+
+        internal_node_remove_child(table, parent_page, right_sibling_page);
+    }
+}
+
+static void internal_node_remove_child(Table *table, uint32_t parent_page_num, uint32_t child_page_num)
+{
+    void *parent = get_page(table->pager, parent_page_num);
+    uint32_t num_keys = *internal_node_num_key(parent);
+    uint32_t child_idx = internal_node_find_child_index(parent, child_page_num);
+
+    if (child_idx == INVALID_PAGE_NUM)
+    {
+        return;
+    }
+
+    if (child_idx == num_keys)
+    {
+
+        if (num_keys > 0)
+        {
+            time_t old_parent_max = get_node_max_key(table->pager, parent);
+            *internal_node_right_child(parent) = *internal_node_child(parent, num_keys - 1);
+            *internal_node_num_key(parent) = num_keys - 1;
+            time_t new_parent_max = get_node_max_key(table->pager, parent);
+
+            if (!is_root_node(parent))
+            {
+                update_ancestor_keys(table, parent_page_num, old_parent_max, new_parent_max);
+            }
+        }
+        else
+        {
+            *internal_node_right_child(parent) = INVALID_PAGE_NUM;
+        }
+    }
+    else
+    {
+
+        for (uint32_t i = child_idx; i < num_keys - 1; i++)
+        {
+            memcpy(internal_node_cell(parent, i), internal_node_cell(parent, i + 1), INTERNAL_NODE_CELL_SIZE);
+        }
+        *internal_node_num_key(parent) = num_keys - 1;
+    }
+
+    if (is_root_node(parent))
+    {
+
+        if (*internal_node_num_key(parent) == 0)
+        {
+            uint32_t only_child_page = *internal_node_right_child(parent);
+            if (only_child_page != INVALID_PAGE_NUM)
+            {
+                void *only_child = get_page(table->pager, only_child_page);
+                memcpy(parent, only_child, PAGE_SIZE);
+                set_root_node(parent, true);
+
+                if (get_node_type(parent) == NODE_INTERNAL)
+                {
+                    uint32_t k = *internal_node_num_key(parent);
+                    for (uint32_t i = 0; i < k; i++)
+                    {
+                        void *ch = get_page(table->pager, *internal_node_child(parent, i));
+                        *node_parent(ch) = table->root_page_num;
+                    }
+                    void *rch = get_page(table->pager, *internal_node_right_child(parent));
+                    *node_parent(rch) = table->root_page_num;
+                }
+            }
+        }
+    }
+    else
+    {
+        if (*internal_node_num_key(parent) < INTERNAL_NODE_MIN_KEYS)
+        {
+            internal_node_handle_underflow(table, parent_page_num);
+        }
+    }
+}
+
+static void leaf_node_handle_underflow(Table *table, uint32_t page_num)
+{
+    void *node = get_page(table->pager, page_num);
+
+    if (is_root_node(node))
+    {
+        return;
+    }
+
+    uint32_t num_cells = *leaf_node_num_cells(node);
+    if (num_cells >= LEAF_NODE_MIN_CELLS)
+    {
+        return;
+    }
+
+    uint32_t parent_page = *node_parent(node);
+    void *parent = get_page(table->pager, parent_page);
+    uint32_t child_idx = internal_node_find_child_index(parent, page_num);
+    uint32_t p_keys = *internal_node_num_key(parent);
+
+    if (child_idx > 0)
+    {
+        uint32_t left_sibling_page = *internal_node_child(parent, child_idx - 1);
+        void *left_sibling = get_page(table->pager, left_sibling_page);
+        uint32_t left_cells = *leaf_node_num_cells(left_sibling);
+
+        if (left_cells > LEAF_NODE_MIN_CELLS)
+        {
+
+            for (uint32_t i = num_cells; i > 0; i--)
+            {
+                memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i - 1), LEAF_NODE_CELL_SIZE);
+            }
+
+            memcpy(leaf_node_cell(node, 0), leaf_node_cell(left_sibling, left_cells - 1), LEAF_NODE_CELL_SIZE);
+
+            *leaf_node_num_cells(left_sibling) = left_cells - 1;
+            *leaf_node_num_cells(node) = num_cells + 1;
+
+            time_t left_new_max = get_node_max_key(table->pager, left_sibling);
+            *internal_node_key(parent, child_idx - 1) = left_new_max;
+            return;
+        }
+    }
+
+    if (child_idx < p_keys)
+    {
+        uint32_t right_sibling_page = *internal_node_child(parent, child_idx + 1);
+        void *right_sibling = get_page(table->pager, right_sibling_page);
+        uint32_t right_cells = *leaf_node_num_cells(right_sibling);
+
+        if (right_cells > LEAF_NODE_MIN_CELLS)
+        {
+            time_t old_max = get_node_max_key(table->pager, node);
+
+            memcpy(leaf_node_cell(node, num_cells), leaf_node_cell(right_sibling, 0), LEAF_NODE_CELL_SIZE);
+
+            for (uint32_t i = 0; i < right_cells - 1; i++)
+            {
+                memcpy(leaf_node_cell(right_sibling, i), leaf_node_cell(right_sibling, i + 1), LEAF_NODE_CELL_SIZE);
+            }
+
+            *leaf_node_num_cells(node) = num_cells + 1;
+            *leaf_node_num_cells(right_sibling) = right_cells - 1;
+
+            time_t new_max = get_node_max_key(table->pager, node);
+            if (child_idx < p_keys)
+            {
+                *internal_node_key(parent, child_idx) = new_max;
+            }
+            else
+            {
+                update_ancestor_keys(table, parent_page, old_max, new_max);
+            }
+            return;
+        }
+    }
+
+    if (child_idx > 0)
+    {
+
+        uint32_t left_sibling_page = *internal_node_child(parent, child_idx - 1);
+        void *left_sibling = get_page(table->pager, left_sibling_page);
+        uint32_t left_cells = *leaf_node_num_cells(left_sibling);
+
+        for (uint32_t i = 0; i < num_cells; i++)
+        {
+            memcpy(leaf_node_cell(left_sibling, left_cells + i), leaf_node_cell(node, i), LEAF_NODE_CELL_SIZE);
+        }
+        *leaf_node_num_cells(left_sibling) = left_cells + num_cells;
+
+        *leaf_node_next_leaf(left_sibling) = *leaf_node_next_leaf(node);
+
+        time_t left_new_max = get_node_max_key(table->pager, left_sibling);
+        *internal_node_key(parent, child_idx - 1) = left_new_max;
+
+        internal_node_remove_child(table, parent_page, page_num);
+    }
+    else
+    {
+
+        uint32_t right_sibling_page = *internal_node_child(parent, 1);
+        void *right_sibling = get_page(table->pager, right_sibling_page);
+        uint32_t right_cells = *leaf_node_num_cells(right_sibling);
+
+        for (uint32_t i = 0; i < right_cells; i++)
+        {
+            memcpy(leaf_node_cell(node, num_cells + i), leaf_node_cell(right_sibling, i), LEAF_NODE_CELL_SIZE);
+        }
+        *leaf_node_num_cells(node) = num_cells + right_cells;
+
+        *leaf_node_next_leaf(node) = *leaf_node_next_leaf(right_sibling);
+
+        time_t node_new_max = get_node_max_key(table->pager, node);
+        *internal_node_key(parent, 0) = node_new_max;
+
+        internal_node_remove_child(table, parent_page, right_sibling_page);
+    }
+}
+
+bool leaf_node_delete(Table *table, time_t key)
+{
+
+    Cursor *cursor = table_find(table, key);
+    void *node = get_page(table->pager, cursor->page_num);
+    uint32_t num_cells = *leaf_node_num_cells(node);
+
+    if (cursor->cell_num >= num_cells || *leaf_node_key(node, cursor->cell_num) != key)
+    {
+        free(cursor);
+        return false;
+    }
+
+    uint32_t page_num = cursor->page_num;
+    uint32_t cell_num = cursor->cell_num;
+    time_t old_max = get_node_max_key(table->pager, node);
+    bool was_max_key = (cell_num == num_cells - 1);
+
+    for (uint32_t i = cell_num; i < num_cells - 1; i++)
+    {
+        memcpy(leaf_node_cell(node, i), leaf_node_cell(node, i + 1), LEAF_NODE_CELL_SIZE);
+    }
+    *leaf_node_num_cells(node) -= 1;
+    num_cells--;
+
+    free(cursor);
+
+    if (was_max_key && !is_root_node(node) && num_cells > 0)
+    {
+        time_t new_max = get_node_max_key(table->pager, node);
+        update_ancestor_keys(table, page_num, old_max, new_max);
+    }
+
+    leaf_node_handle_underflow(table, page_num);
+
+    return true;
+}
+
+bool btree_delete(Table *table, time_t key)
+{
+    return leaf_node_delete(table, key);
 }
 
 void internal_node_split_and_insert(Table *table, uint32_t parent_page_num, uint32_t child_page_num)

@@ -19,11 +19,27 @@ PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement)
     return PREPARE_SUCCESS;
 }
 
+PrepareResult prepare_delete(InputBuffer *input_buffer, Statement *statement)
+{
+    statement->type = DELETE_STATEMENT;
+    long key = 0;
+    if (sscanf(input_buffer->buffer, "delete %ld", &key) < 1)
+    {
+        return PREPARE_SYNTAX_ERROR;
+    }
+    statement->key_to_delete = (time_t)key;
+    return PREPARE_SUCCESS;
+}
+
 PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
 {
     if (strncmp(inputBuffer->buffer, "insert", 6) == 0)
     {
         return prepare_insert(inputBuffer, statement);
+    }
+    else if (strncmp(inputBuffer->buffer, "delete", 6) == 0)
+    {
+        return prepare_delete(inputBuffer, statement);
     }
     else if (strncmp(inputBuffer->buffer, "select", 6) == 0)
     {
@@ -53,7 +69,6 @@ PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement)
 
 ExecuteResult execute_insert(Statement *statement, Table *table, Logger *logger)
 {
-    (void)logger;
     Row *row_to_insert = &(statement->row_to_insert);
     time_t key_to_insert = row_to_insert->timestamp;
     Cursor *cursor = table_find(table, key_to_insert);
@@ -101,6 +116,20 @@ ExecuteResult execute_select(Statement *statement, Table *table)
     return EXECUTE_SUCCESS;
 }
 
+ExecuteResult execute_delete(Statement *statement, Table *table)
+{
+    bool success = leaf_node_delete(table, statement->key_to_delete);
+    if (!success)
+    {
+        printf("Key not found: %ld\n", (long)statement->key_to_delete);
+    }
+    else
+    {
+        printf("Deleted key %ld\n", (long)statement->key_to_delete);
+    }
+    return EXECUTE_SUCCESS;
+}
+
 ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logger)
 {
     switch (statement->type)
@@ -109,6 +138,8 @@ ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logg
         return execute_select(statement, table);
     case INSERT_STATEMENT:
         return execute_insert(statement, table, logger);
+    case DELETE_STATEMENT:
+        return execute_delete(statement, table);
     case TRANSACTION_BEGIN:
         return txn_begin(table, logger);
     case TRANSACTION_COMMIT:
@@ -119,4 +150,3 @@ ExecuteResult execute_statement(Statement *statement, Table *table, Logger *logg
         return EXECUTE_SUCCESS;
     }
 }
-

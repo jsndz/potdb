@@ -40,6 +40,8 @@ void cursor_advance(Cursor *cursor);
 
 void leaf_node_insert(Cursor *cursor, time_t key, Row *value);
 void leaf_node_split_and_insert(Cursor *cursor, time_t key, Row *value);
+bool leaf_node_delete(Table *table, time_t key);
+bool btree_delete(Table *table, time_t key);
 void internal_node_insert(Table *table, uint32_t parent_page_num, uint32_t child_page_num);
 void internal_node_split_and_insert(Table *table, uint32_t parent_page_num, uint32_t child_page_num);
 void create_new_root_node(Table *table, uint32_t right_child_page_num);
