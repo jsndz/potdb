@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "btree.h"
-#include "wal.h"
 
 typedef struct InputBuffer
 {
@@ -29,6 +28,6 @@ void close_input_buffer(InputBuffer *inputBuffer);
 void print_prompt();
 void print_constants();
 void indent(uint32_t level);
-MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table,Logger *logger);
+MetaCommandResult do_meta_command(InputBuffer *input_buffer, Table *table);
 
 #endif // REPL_H

@@ -3,9 +3,6 @@
 #include "repl.h"
 #include "statement.h"
 #include "btree.h"
-#include "transaction.h"
-#include "wal.h"
-
 
 int main(int argc, char *argv[])
 {
@@ -15,9 +12,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     char *db_filename = argv[1];
-    char *log_filename=  argv[2];
     Table *table = db_open(db_filename);
-    Logger *logger = log_open(log_filename);
     InputBuffer *inputBuffer = new_input_buffer();
 
     while (true)
@@ -27,7 +22,7 @@ int main(int argc, char *argv[])
 
         if (inputBuffer->buffer[0] == '.')
         {
-            switch (do_meta_command(inputBuffer, table,logger))
+            switch (do_meta_command(inputBuffer, table))
             {
             case (META_COMMAND_SUCCESS):
                 continue;
@@ -56,7 +51,7 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        switch (execute_statement(&statement, table, logger))
+        switch (execute_statement(&statement, table))
         {
         case EXECUTE_SUCCESS:
             printf("Executed.\n");
