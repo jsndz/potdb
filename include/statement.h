@@ -5,9 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "row.h"
-#include "btree.h"
-
-typedef struct InputBuffer InputBuffer;
+#include "table.h"
 
 typedef enum
 {
@@ -37,8 +35,8 @@ typedef struct Statement
     Row row_to_insert;
 } Statement;
 
-PrepareResult prepare_statement(InputBuffer *inputBuffer, Statement *statement);
-PrepareResult prepare_insert(InputBuffer *input_buffer, Statement *statement);
+PrepareResult prepare_statement(const char *input, Statement *statement);
+PrepareResult prepare_insert(const char *input, Statement *statement);
 ExecuteResult execute_statement(Statement *statement, Table *table);
 ExecuteResult execute_insert(Statement *statement, Table *table);
 ExecuteResult execute_select(Statement *statement, Table *table);
