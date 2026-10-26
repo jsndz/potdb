@@ -366,6 +366,10 @@ PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
     db->chunk_header_size = (db->dim == 2) ? sizeof(ChunkHeader2D) : sizeof(ChunkHeader3D);
 
     db->config.max_points = (config && config->max_points > 0) ? config->max_points : PTDB_DEFAULT_MAX_POINTS;
+    if (db->config.max_points > 65535)
+    {
+        db->config.max_points = 65535;
+    }
     db->config.max_time_window_ms = (config && config->max_time_window_ms > 0) ? config->max_time_window_ms : PTDB_DEFAULT_MAX_TIME_WINDOW_MS;
 
     db->buffer = (uint8_t *)malloc(db->config.max_points * db->point_stride);
@@ -806,6 +810,13 @@ int ptdb_reader_next_chunk(PTDBReader *reader, void *header_out, void **points_o
         {
             memcpy(header_out, &ch, sizeof(ChunkHeader3D));
         }
+    }
+ 
+    if (payload_size != (uint32_t)count * (uint32_t)reader->point_stride)
+    {
+        fprintf(stderr, "Error: Invalid chunk payload size %u (expected %u)\n",
+                payload_size, count * (uint32_t)reader->point_stride);
+        return -1;
     }
 
     if (payload_size > reader->points_buffer_capacity)

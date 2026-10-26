@@ -8,3 +8,6 @@ potdb
 compile_commands.json
 TODO.md
 .cache
+build/
+*.db
+*.log
