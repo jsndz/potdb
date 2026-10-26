@@ -1,62 +1,172 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "statement.h"
-#include "table.h"
+#include "ptdb.h"
+
+static void dump_database(const char *filepath)
+{
+    PTDBReader *reader = ptdb_reader_open(filepath);
+    if (!reader)
+    {
+        return;
+    }
+
+    uint8_t dim = ptdb_reader_get_dim(reader);
+    uint32_t chunk_idx = 0;
+    uint32_t total_points = 0;
+
+    if (dim == 2)
+    {
+        ChunkHeader2D ch;
+        void *points = NULL;
+        uint32_t count = 0;
+
+        while (ptdb_reader_next_chunk(reader, &ch, &points, &count) == 1)
+        {
+            printf("--- Chunk %u [2D] ---\n", chunk_idx++);
+            printf("  Points: %u | Time: [%ld .. %ld]\n",
+                   count, (long)ch.start_time, (long)ch.end_time);
+            printf("  MBR: X: [%.4f .. %.4f], Y: [%.4f .. %.4f]\n",
+                   ch.min_x, ch.max_x, ch.min_y, ch.max_y);
+            printf("  CRC32: 0x%08X (Verified)\n", ch.checksum);
+
+            for (uint32_t i = 0; i < count; i++)
+            {
+                Point2D pt;
+                ptdb_get_point_2d(points, i, &pt);
+                printf("  (%ld, %.4f, %.4f)\n", (long)pt.timestamp, pt.x, pt.y);
+            }
+            total_points += count;
+        }
+    }
+    else
+    {
+        ChunkHeader3D ch;
+        void *points = NULL;
+        uint32_t count = 0;
+
+        while (ptdb_reader_next_chunk(reader, &ch, &points, &count) == 1)
+        {
+            printf("--- Chunk %u [3D] ---\n", chunk_idx++);
+            printf("  Points: %u | Time: [%ld .. %ld]\n",
+                   count, (long)ch.start_time, (long)ch.end_time);
+            printf("  MBR: X: [%.4f .. %.4f], Y: [%.4f .. %.4f], Z: [%.4f .. %.4f]\n",
+                   ch.min_x, ch.max_x, ch.min_y, ch.max_y, ch.min_z, ch.max_z);
+            printf("  CRC32: 0x%08X (Verified)\n", ch.checksum);
+
+            for (uint32_t i = 0; i < count; i++)
+            {
+                Point3D pt;
+                ptdb_get_point_3d(points, i, &pt);
+                printf("  (%ld, %.4f, %.4f, %.4f)\n",
+                       (long)pt.timestamp, pt.x, pt.y, pt.z);
+            }
+            total_points += count;
+        }
+    }
+
+    printf("Total Chunks: %u, Total Points: %u\n", chunk_idx, total_points);
+    ptdb_reader_close(reader);
+}
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        fprintf(stderr, "Usage: %s <db_file> [insert <timestamp> <x> <y> | select]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <file> [init <dim> [time_unit] | insert <timestamp> <x> <y> [z] | select | dump]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
     char *db_filename = argv[1];
-    Table *table = db_open(db_filename);
 
-    if (argc >= 3)
+    if (argc >= 3 && strcmp(argv[2], "init") == 0)
     {
-        if (strcmp(argv[2], "insert") == 0)
+        uint8_t dim = (argc >= 4) ? (uint8_t)atoi(argv[3]) : 2;
+        uint8_t time_unit = (argc >= 5) ? (uint8_t)atoi(argv[4]) : PTDB_TIME_UNIT_MS;
+
+        if (dim != 2 && dim != 3)
+        {
+            fprintf(stderr, "Error: Dimension must be 2 or 3 (got %u)\n", dim);
+            return 1;
+        }
+
+        if (ptdb_init(db_filename, dim, time_unit) != 0)
+        {
+            return 1;
+        }
+        printf("Database '%s' initialized successfully (dim: %uD, time_unit: %u).\n",
+               db_filename, dim, time_unit);
+        return 0;
+    }
+
+    if (argc >= 3 && (strcmp(argv[2], "select") == 0 || strcmp(argv[2], "dump") == 0))
+    {
+        dump_database(db_filename);
+        return 0;
+    }
+
+    if (argc >= 3 && strcmp(argv[2], "insert") == 0)
+    {
+        PTDB *db = ptdb_open(db_filename, NULL);
+        if (!db)
+        {
+            return 1;
+        }
+
+        uint8_t dim = ptdb_get_dim(db);
+        if (dim == 2)
         {
             if (argc < 6)
             {
                 fprintf(stderr, "Usage: %s %s insert <timestamp> <x> <y>\n", argv[0], argv[1]);
-                db_close(table);
+                ptdb_close(db);
                 return 1;
             }
 
-            long timestamp = atol(argv[3]);
-            if (timestamp < 0)
+            int64_t timestamp = (int64_t)atoll(argv[3]);
+            float x = (float)atof(argv[4]);
+            float y = (float)atof(argv[5]);
+
+            if (ptdb_insert_2d(db, timestamp, x, y) != 0)
             {
-                fprintf(stderr, "ID can't be negative.\n");
-                db_close(table);
+                ptdb_close(db);
+                return 1;
+            }
+            printf("Inserted 2D point (%ld, %.4f, %.4f)\n", (long)timestamp, x, y);
+        }
+        else if (dim == 3)
+        {
+            if (argc < 7)
+            {
+                fprintf(stderr, "Usage: %s %s insert <timestamp> <x> <y> <z>\n", argv[0], argv[1]);
+                ptdb_close(db);
                 return 1;
             }
 
-            Row row;
-            row.timestamp = (time_t)timestamp;
-            row.pos.x = atoi(argv[4]);
-            row.pos.y = atoi(argv[5]);
+            int64_t timestamp = (int64_t)atoll(argv[3]);
+            float x = (float)atof(argv[4]);
+            float y = (float)atof(argv[5]);
+            float z = (float)atof(argv[6]);
 
-            table_append_row(table, &row);
-        }
-        else if (strcmp(argv[2], "select") == 0)
-        {
-            table_select_all(table);
-        }
-        else
-        {
-            fprintf(stderr, "Unrecognized command: %s\n", argv[2]);
-            db_close(table);
-            return 1;
+            if (ptdb_insert_3d(db, timestamp, x, y, z) != 0)
+            {
+                ptdb_close(db);
+                return 1;
+            }
+            printf("Inserted 3D point (%ld, %.4f, %.4f, %.4f)\n", (long)timestamp, x, y, z);
         }
 
-        db_close(table);
+        ptdb_close(db);
         return 0;
     }
 
-    // Stdin stream mode (piping / batch input)
+    PTDB *db = ptdb_open(db_filename, NULL);
+    if (!db)
+    {
+        return 1;
+    }
+
+    uint8_t dim = ptdb_get_dim(db);
     char *line = NULL;
     size_t len = 0;
     ssize_t read_bytes;
@@ -72,29 +182,41 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        Statement statement;
-        switch (prepare_statement(line, &statement))
+        char *ptr = line;
+        if (strncmp(ptr, "insert ", 7) == 0)
         {
-        case PREPARE_SUCCESS:
-            break;
-        case PREPARE_NEGATIVE_ID:
-            fprintf(stderr, "ID can't be negative.\n");
-            continue;
-        case PREPARE_UNRECOGNIZED_STATEMENT:
-            fprintf(stderr, "Unrecognized command: %s\n", line);
-            continue;
-        case PREPARE_SYNTAX_ERROR:
-            fprintf(stderr, "Syntax error. Could not parse statement.\n");
-            continue;
-        case PREPARE_STRING_TOO_LONG:
-            fprintf(stderr, "String is too long.\n");
-            continue;
+            ptr += 7;
         }
 
-        execute_statement(&statement, table);
+        if (dim == 2)
+        {
+            long long timestamp;
+            float x, y;
+            if (sscanf(ptr, "%lld %f %f", &timestamp, &x, &y) == 3)
+            {
+                ptdb_insert_2d(db, (int64_t)timestamp, x, y);
+            }
+            else
+            {
+                fprintf(stderr, "Invalid 2D input: %s\n", line);
+            }
+        }
+        else if (dim == 3)
+        {
+            long long timestamp;
+            float x, y, z;
+            if (sscanf(ptr, "%lld %f %f %f", &timestamp, &x, &y, &z) == 4)
+            {
+                ptdb_insert_3d(db, (int64_t)timestamp, x, y, z);
+            }
+            else
+            {
+                fprintf(stderr, "Invalid 3D input: %s\n", line);
+            }
+        }
     }
 
     free(line);
-    db_close(table);
+    ptdb_close(db);
     return 0;
 }

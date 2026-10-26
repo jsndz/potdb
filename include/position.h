@@ -7,4 +7,4 @@ typedef struct
     int y;
 } Position;
 
-#endif // POSITION_H
+#endif

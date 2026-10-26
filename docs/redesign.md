@@ -209,22 +209,3 @@ Because the data file is append-only:
      ```
    - Recovery finishes in milliseconds with **zero lost committed chunks**.
 
----
-
-## 8. Implementation Roadmap
-
-### Phase 1: Pure Storage Layer (Replace B-Tree)
-- [ ] Create `include/chunk.h` and `src/chunk.c` defining 4 KB chunk format and serialization.
-- [ ] Implement `src/sparse_index.c` for in-memory chunk range tracking.
-- [ ] Refactor `src/pager.c` to append chunks sequentially.
-
-### Phase 2: Ingestion & Micro-batching
-- [ ] Implement active chunk RAM buffer in `src/statement.c`.
-- [ ] Add auto-flush on chunk capacity (254 records) and time interval.
-- [ ] Deprecate `src/wal.c` and remove duplicate WAL file logging.
-
-### Phase 3: Cleanup & Interface Refactoring
-- [ ] Remove `leaf_node_delete()` and underflow routines from `src/btree.c`.
-- [ ] Remove `src/transaction.c` and `include/transaction.h`.
-- [ ] Update REPL to support `select <from_time> <to_time>` and `select latest <limit>`.
-- [ ] Add rolling ring-buffer retention or segment file rotation.
