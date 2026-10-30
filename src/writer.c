@@ -1,0 +1,498 @@
+#include "writer.h"
+#include "serialize.h"
+#include "crc32.h"
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+struct PTDB {
+    int fd;
+    uint8_t dim;
+    uint8_t time_unit;
+    size_t point_stride;
+    size_t chunk_header_size;
+    PTDBConfig config;
+
+    uint8_t *buffer;
+    uint32_t buffered_count;
+    int64_t first_point_timestamp;
+    int64_t last_timestamp;
+    bool has_first_point;
+
+    float min_x, max_x;
+    float min_y, max_y;
+    float min_z, max_z;
+};
+
+int ptdb_init(const char *filepath, uint8_t dim, uint8_t time_unit)
+{
+    if (dim != 2 && dim != 3)
+    {
+        fprintf(stderr, "Error: Invalid dimension %u (must be 2 or 3)\n", dim);
+        return -1;
+    }
+
+    if (time_unit == 0)
+    {
+        time_unit = PTDB_TIME_UNIT_MS;
+    }
+
+    int fd = open(filepath, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR);
+    if (fd == -1)
+    {
+        perror("ptdb_init: open");
+        return -1;
+    }
+
+    off_t file_length = lseek(fd, 0, SEEK_END);
+    if (file_length == -1)
+    {
+        perror("ptdb_init: lseek");
+        close(fd);
+        return -1;
+    }
+
+    if (file_length > 0)
+    {
+        fprintf(stderr, "Error: Database '%s' is already initialized (size = %ld)\n",
+                filepath, (long)file_length);
+        close(fd);
+        return -1;
+    }
+
+    FileHeader header;
+    memset(&header, 0, sizeof(FileHeader));
+    header.magic = PTDB_FILE_MAGIC;
+    header.version = PTDB_VERSION;
+    header.dim = dim;
+    header.time_unit = time_unit;
+    header.reserved = 0;
+
+    uint8_t raw_hdr[FILE_HEADER_SIZE];
+    serialize_file_header(raw_hdr, &header);
+
+    ssize_t bytes_written = write(fd, raw_hdr, FILE_HEADER_SIZE);
+    if (bytes_written != (ssize_t)FILE_HEADER_SIZE)
+    {
+        perror("ptdb_init: write header");
+        close(fd);
+        return -1;
+    }
+
+    if (fsync(fd) == -1)
+    {
+        perror("ptdb_init: fsync");
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
+{
+    int fd = open(filepath, O_RDWR, S_IWUSR | S_IRUSR);
+    if (fd == -1)
+    {
+        perror("ptdb_open: open");
+        return NULL;
+    }
+
+    off_t file_length = lseek(fd, 0, SEEK_END);
+    if (file_length == -1)
+    {
+        perror("ptdb_open: lseek");
+        close(fd);
+        return NULL;
+    }
+
+    if (file_length == 0)
+    {
+        fprintf(stderr, "Error: Database '%s' is uninitialised.\n", filepath);
+        close(fd);
+        return NULL;
+    }
+
+    if (file_length < (off_t)FILE_HEADER_SIZE)
+    {
+        fprintf(stderr, "Error: Database '%s' is smaller than header size.\n", filepath);
+        close(fd);
+        return NULL;
+    }
+
+    if (lseek(fd, 0, SEEK_SET) == -1)
+    {
+        perror("ptdb_open: lseek to start");
+        close(fd);
+        return NULL;
+    }
+
+    uint8_t raw_hdr[FILE_HEADER_SIZE];
+    ssize_t bytes_read = read(fd, raw_hdr, FILE_HEADER_SIZE);
+    if (bytes_read != (ssize_t)FILE_HEADER_SIZE)
+    {
+        perror("ptdb_open: read header");
+        close(fd);
+        return NULL;
+    }
+
+    FileHeader header;
+    deserialize_file_header(&header, raw_hdr);
+
+    if (header.magic != PTDB_FILE_MAGIC)
+    {
+        fprintf(stderr, "Error: Invalid file magic 0x%08X (expected 0x%08X)\n",
+                header.magic, PTDB_FILE_MAGIC);
+        close(fd);
+        return NULL;
+    }
+
+    if (header.version != PTDB_VERSION)
+    {
+        fprintf(stderr, "Error: Unsupported version %u (expected %u)\n",
+                header.version, PTDB_VERSION);
+        close(fd);
+        return NULL;
+    }
+
+    if (header.dim != 2 && header.dim != 3)
+    {
+        fprintf(stderr, "Error: Invalid dimension in header: %u\n", header.dim);
+        close(fd);
+        return NULL;
+    }
+
+    PTDB *db = (PTDB *)calloc(1, sizeof(PTDB));
+    if (!db)
+    {
+        perror("ptdb_open: malloc PTDB");
+        close(fd);
+        return NULL;
+    }
+
+    db->fd = fd;
+    db->dim = header.dim;
+    db->time_unit = header.time_unit;
+    db->point_stride = (db->dim == 2) ? sizeof(Point2D) : sizeof(Point3D);
+    db->chunk_header_size = (db->dim == 2) ? sizeof(ChunkHeader2D) : sizeof(ChunkHeader3D);
+
+    db->config.max_points = (config && config->max_points > 0) ? config->max_points : PTDB_DEFAULT_MAX_POINTS;
+    if (db->config.max_points > 65535)
+    {
+        db->config.max_points = 65535;
+    }
+    db->config.max_time_window_ms = (config && config->max_time_window_ms > 0) ? config->max_time_window_ms : PTDB_DEFAULT_MAX_TIME_WINDOW_MS;
+
+    db->buffer = (uint8_t *)malloc(db->config.max_points * db->point_stride);
+    if (!db->buffer)
+    {
+        perror("ptdb_open: malloc RAM buffer");
+        free(db);
+        close(fd);
+        return NULL;
+    }
+
+    db->buffered_count = 0;
+    db->has_first_point = false;
+    db->last_timestamp = INT64_MIN;
+
+    if (lseek(fd, 0, SEEK_END) == -1)
+    {
+        perror("ptdb_open: lseek to end");
+        free(db->buffer);
+        free(db);
+        close(fd);
+        return NULL;
+    }
+
+    return db;
+}
+
+uint8_t ptdb_get_dim(const PTDB *db)
+{
+    return db ? db->dim : 0;
+}
+
+int ptdb_flush(PTDB *db)
+{
+    if (!db || db->buffered_count == 0)
+    {
+        return 0;
+    }
+
+    uint32_t payload_size = db->buffered_count * (uint32_t)db->point_stride;
+    uint32_t checksum = ptdb_crc32(db->buffer, payload_size);
+
+    if (lseek(db->fd, 0, SEEK_END) == -1)
+    {
+        perror("ptdb_flush: lseek");
+        return -1;
+    }
+
+    if (db->dim == 2)
+    {
+        ChunkHeader2D header;
+        memset(&header, 0, sizeof(ChunkHeader2D));
+        header.magic = PTDB_CHUNK_MAGIC;
+        header.count = (uint16_t)db->buffered_count;
+        header.start_time = db->first_point_timestamp;
+        header.end_time = db->last_timestamp;
+        header.min_x = db->min_x;
+        header.max_x = db->max_x;
+        header.min_y = db->min_y;
+        header.max_y = db->max_y;
+        header.payload_size = payload_size;
+        header.checksum = checksum;
+
+        uint8_t raw_hdr[CHUNK_HEADER_2D_SIZE];
+        serialize_chunk_header_2d(raw_hdr, &header);
+
+        ssize_t h_written = write(db->fd, raw_hdr, CHUNK_HEADER_2D_SIZE);
+        if (h_written != (ssize_t)CHUNK_HEADER_2D_SIZE)
+        {
+            perror("ptdb_flush: write 2D header");
+            return -1;
+        }
+    }
+    else
+    {
+        ChunkHeader3D header;
+        memset(&header, 0, sizeof(ChunkHeader3D));
+        header.magic = PTDB_CHUNK_MAGIC;
+        header.count = (uint16_t)db->buffered_count;
+        header.start_time = db->first_point_timestamp;
+        header.end_time = db->last_timestamp;
+        header.min_x = db->min_x;
+        header.max_x = db->max_x;
+        header.min_y = db->min_y;
+        header.max_y = db->max_y;
+        header.min_z = db->min_z;
+        header.max_z = db->max_z;
+        header.payload_size = payload_size;
+        header.checksum = checksum;
+
+        uint8_t raw_hdr[CHUNK_HEADER_3D_SIZE];
+        serialize_chunk_header_3d(raw_hdr, &header);
+
+        ssize_t h_written = write(db->fd, raw_hdr, CHUNK_HEADER_3D_SIZE);
+        if (h_written != (ssize_t)CHUNK_HEADER_3D_SIZE)
+        {
+            perror("ptdb_flush: write 3D header");
+            return -1;
+        }
+    }
+
+    ssize_t b_written = write(db->fd, db->buffer, payload_size);
+    if (b_written != (ssize_t)payload_size)
+    {
+        perror("ptdb_flush: write payload");
+        return -1;
+    }
+
+    if (fsync(db->fd) == -1)
+    {
+        perror("ptdb_flush: fsync");
+        return -1;
+    }
+
+    db->buffered_count = 0;
+    db->has_first_point = false;
+
+    return 0;
+}
+
+int ptdb_insert_2d(PTDB *db, int64_t timestamp, float x, float y)
+{
+    if (!db)
+    {
+        return -1;
+    }
+
+    if (db->dim != 2)
+    {
+        fprintf(stderr, "Error: Schema mismatch. Database is %uD, cannot insert 2D point.\n", db->dim);
+        return -1;
+    }
+
+    if (db->last_timestamp != INT64_MIN && timestamp < db->last_timestamp)
+    {
+        fprintf(stderr, "Error: Non-monotonic timestamp: %ld < %ld\n", (long)timestamp, (long)db->last_timestamp);
+        return -2;
+    }
+
+    if (db->buffered_count > 0 && db->has_first_point)
+    {
+        if ((timestamp - db->first_point_timestamp) >= (int64_t)db->config.max_time_window_ms)
+        {
+            if (ptdb_flush(db) != 0)
+            {
+                return -1;
+            }
+        }
+    }
+
+    uint8_t *dest = db->buffer + (db->buffered_count * db->point_stride);
+    put_le64(dest + 0, (uint64_t)timestamp);
+    put_le_float(dest + 8, x);
+    put_le_float(dest + 12, y);
+
+    if (db->buffered_count == 0)
+    {
+        db->first_point_timestamp = timestamp;
+        db->has_first_point = true;
+        db->min_x = db->max_x = x;
+        db->min_y = db->max_y = y;
+    }
+    else
+    {
+        if (x < db->min_x) db->min_x = x;
+        if (x > db->max_x) db->max_x = x;
+        if (y < db->min_y) db->min_y = y;
+        if (y > db->max_y) db->max_y = y;
+    }
+
+    db->last_timestamp = timestamp;
+    db->buffered_count++;
+
+    if (db->buffered_count >= db->config.max_points)
+    {
+        if (ptdb_flush(db) != 0)
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int ptdb_insert_3d(PTDB *db, int64_t timestamp, float x, float y, float z)
+{
+    if (!db)
+    {
+        return -1;
+    }
+
+    if (db->dim != 3)
+    {
+        fprintf(stderr, "Error: Schema mismatch. Database is %uD, cannot insert 3D point.\n", db->dim);
+        return -1;
+    }
+
+    if (db->last_timestamp != INT64_MIN && timestamp < db->last_timestamp)
+    {
+        fprintf(stderr, "Error: Non-monotonic timestamp: %ld < %ld\n", (long)timestamp, (long)db->last_timestamp);
+        return -2;
+    }
+
+    if (db->buffered_count > 0 && db->has_first_point)
+    {
+        if ((timestamp - db->first_point_timestamp) >= (int64_t)db->config.max_time_window_ms)
+        {
+            if (ptdb_flush(db) != 0)
+            {
+                return -1;
+            }
+        }
+    }
+
+    uint8_t *dest = db->buffer + (db->buffered_count * db->point_stride);
+    put_le64(dest + 0, (uint64_t)timestamp);
+    put_le_float(dest + 8, x);
+    put_le_float(dest + 12, y);
+    put_le_float(dest + 16, z);
+
+    if (db->buffered_count == 0)
+    {
+        db->first_point_timestamp = timestamp;
+        db->has_first_point = true;
+        db->min_x = db->max_x = x;
+        db->min_y = db->max_y = y;
+        db->min_z = db->max_z = z;
+    }
+    else
+    {
+        if (x < db->min_x) db->min_x = x;
+        if (x > db->max_x) db->max_x = x;
+        if (y < db->min_y) db->min_y = y;
+        if (y > db->max_y) db->max_y = y;
+        if (z < db->min_z) db->min_z = z;
+        if (z > db->max_z) db->max_z = z;
+    }
+
+    db->last_timestamp = timestamp;
+    db->buffered_count++;
+
+    if (db->buffered_count >= db->config.max_points)
+    {
+        if (ptdb_flush(db) != 0)
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int ptdb_write_2d(PTDB *db, int64_t timestamp, float x, float y)
+{
+    return ptdb_insert_2d(db, timestamp, x, y);
+}
+
+int ptdb_write_3d(PTDB *db, int64_t timestamp, float x, float y, float z)
+{
+    return ptdb_insert_3d(db, timestamp, x, y, z);
+}
+
+int ptdb_insert_point(PTDB *db, const void *point)
+{
+    if (!db || !point)
+    {
+        return -1;
+    }
+
+    if (db->dim == 2)
+    {
+        const Point2D *p = (const Point2D *)point;
+        return ptdb_insert_2d(db, p->timestamp, p->x, p->y);
+    }
+    else if (db->dim == 3)
+    {
+        const Point3D *p = (const Point3D *)point;
+        return ptdb_insert_3d(db, p->timestamp, p->x, p->y, p->z);
+    }
+
+    return -1;
+}
+
+int ptdb_close(PTDB *db)
+{
+    if (!db)
+    {
+        return 0;
+    }
+
+    if (db->buffered_count > 0)
+    {
+        ptdb_flush(db);
+    }
+
+    if (db->buffer)
+    {
+        free(db->buffer);
+        db->buffer = NULL;
+    }
+
+    if (db->fd != -1)
+    {
+        close(db->fd);
+        db->fd = -1;
+    }
+
+    free(db);
+    return 0;
+}

@@ -9,6 +9,19 @@
 
 #define BENCH_DB "bench_target.db"
 
+typedef struct {
+    double write_tps_100;
+    double write_tps_500;
+    double write_tps_1000;
+    double write_tps_5000;
+    double write_tps_10000;
+    double write_tps_50000;
+    double read_tps;
+    double read_mb_s;
+    double accessor_2d_ns;
+    double accessor_3d_ns;
+} BenchmarkResults;
+
 static double get_time_sec(void)
 {
     struct timeval tv;
@@ -16,7 +29,7 @@ static double get_time_sec(void)
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
 }
 
-static void bench_write_buffer_sizes(void)
+static void bench_write_buffer_sizes(BenchmarkResults *res)
 {
     const uint32_t buffer_sizes[] = { 100, 500, 1000, 5000, 10000, 50000 };
     const size_t num_sizes = sizeof(buffer_sizes) / sizeof(buffer_sizes[0]);
@@ -55,13 +68,20 @@ static void bench_write_buffer_sizes(void)
         double pts_per_sec = (double)TOTAL_POINTS / elapsed;
         uint32_t flushes = (TOTAL_POINTS + bs - 1) / bs;
 
+        if (bs == 100) res->write_tps_100 = pts_per_sec;
+        else if (bs == 500) res->write_tps_500 = pts_per_sec;
+        else if (bs == 1000) res->write_tps_1000 = pts_per_sec;
+        else if (bs == 5000) res->write_tps_5000 = pts_per_sec;
+        else if (bs == 10000) res->write_tps_10000 = pts_per_sec;
+        else if (bs == 50000) res->write_tps_50000 = pts_per_sec;
+
         printf("%-12u | %-12.4f | %-14.0f | %-12.2f | %-12u\n",
                bs, elapsed, pts_per_sec, mb_per_sec, flushes);
     }
     unlink(BENCH_DB);
 }
 
-static void bench_read_throughput(void)
+static void bench_read_throughput(BenchmarkResults *res)
 {
     const uint32_t TOTAL_POINTS = 500000;
     const uint32_t CHUNK_SIZE = 1000;
@@ -102,15 +122,18 @@ static void bench_read_throughput(void)
     double elapsed = get_time_sec() - t0;
     ptdb_reader_close(reader);
 
+    res->read_tps = (double)read_points / elapsed;
+    res->read_mb_s = mb / elapsed;
+
     printf("Read & CRC-verified %u points in %u chunks (%.2f MB)\n", read_points, read_chunks, mb);
     printf("Elapsed Time:      %.4f seconds\n", elapsed);
-    printf("Read Throughput:   %.0f points/sec\n", (double)read_points / elapsed);
-    printf("Data Bandwidth:    %.2f MB/sec\n", mb / elapsed);
+    printf("Read Throughput:   %.0f points/sec\n", res->read_tps);
+    printf("Data Bandwidth:    %.2f MB/sec\n", res->read_mb_s);
 
     unlink(BENCH_DB);
 }
 
-static void bench_point_accessors(void)
+static void bench_point_accessors(BenchmarkResults *res)
 {
     const uint32_t N = 1000000;
     printf("\n--- 3. Point Accessor Overhead (In-Memory Deserialization) ---\n");
@@ -132,6 +155,8 @@ static void bench_point_accessors(void)
     }
     double elapsed2d = get_time_sec() - t0;
     double ns_per_point_2d = (elapsed2d * 1e9) / (double)N;
+
+    res->accessor_2d_ns = ns_per_point_2d;
 
     printf("2D Point Accessor: %.2f ns/point (%.0f points/sec)\n",
            ns_per_point_2d, (double)N / elapsed2d);
@@ -157,24 +182,52 @@ static void bench_point_accessors(void)
     double elapsed3d = get_time_sec() - t0;
     double ns_per_point_3d = (elapsed3d * 1e9) / (double)N;
 
+    res->accessor_3d_ns = ns_per_point_3d;
+
     printf("3D Point Accessor: %.2f ns/point (%.0f points/sec)\n",
            ns_per_point_3d, (double)N / elapsed3d);
 
     free(buf3d);
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    BenchmarkResults res;
+    memset(&res, 0, sizeof(res));
+
     printf("==================================================\n");
     printf("          PTDB ENGINE PERFORMANCE BENCHMARK       \n");
     printf("==================================================\n");
 
-    bench_write_buffer_sizes();
-    bench_read_throughput();
-    bench_point_accessors();
+    bench_write_buffer_sizes(&res);
+    bench_read_throughput(&res);
+    bench_point_accessors(&res);
 
     printf("\n==================================================\n");
     printf("          BENCHMARK COMPLETED SUCCESSFULLY!       \n");
     printf("==================================================\n");
+
+    if (argc >= 2)
+    {
+        FILE *f = fopen(argv[1], "w");
+        if (f)
+        {
+            fprintf(f, "{\n");
+            fprintf(f, "  \"write_tps_100\": %.0f,\n", res.write_tps_100);
+            fprintf(f, "  \"write_tps_500\": %.0f,\n", res.write_tps_500);
+            fprintf(f, "  \"write_tps_1000\": %.0f,\n", res.write_tps_1000);
+            fprintf(f, "  \"write_tps_5000\": %.0f,\n", res.write_tps_5000);
+            fprintf(f, "  \"write_tps_10000\": %.0f,\n", res.write_tps_10000);
+            fprintf(f, "  \"write_tps_50000\": %.0f,\n", res.write_tps_50000);
+            fprintf(f, "  \"read_tps\": %.0f,\n", res.read_tps);
+            fprintf(f, "  \"read_mb_s\": %.2f,\n", res.read_mb_s);
+            fprintf(f, "  \"accessor_2d_ns\": %.2f,\n", res.accessor_2d_ns);
+            fprintf(f, "  \"accessor_3d_ns\": %.2f\n", res.accessor_3d_ns);
+            fprintf(f, "}\n");
+            fclose(f);
+            printf("Saved benchmark metrics to '%s'\n", argv[1]);
+        }
+    }
+
     return 0;
 }

@@ -1,0 +1,16 @@
+{
+  "label": "baseline_v1",
+  "timestamp": "2026-10-30 17:48:13",
+  "metrics": {
+    "write_tps_100": 19945,
+    "write_tps_500": 92257,
+    "write_tps_1000": 188157,
+    "write_tps_5000": 775931,
+    "write_tps_10000": 1222174,
+    "write_tps_50000": 3029428,
+    "read_tps": 9782451,
+    "read_mb_s": 149.68,
+    "accessor_2d_ns": 26.88,
+    "accessor_3d_ns": 29.79
+  }
+}
