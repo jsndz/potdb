@@ -223,3 +223,233 @@ void ptdb_reader_close(PTDBReader *reader)
 
     free(reader);
 }
+
+uint64_t ptdb_query_range_2d(const char *filepath, const PTDBQueryRange2D *range, ptdb_point_2d_callback callback, void *user_data)
+{
+    if (!filepath || !range || !callback)
+    {
+        return 0;
+    }
+
+    int fd = open(filepath, O_RDONLY);
+    if (fd == -1)
+    {
+        return 0;
+    }
+
+    uint8_t raw_hdr[FILE_HEADER_SIZE];
+    if (read(fd, raw_hdr, FILE_HEADER_SIZE) != (ssize_t)FILE_HEADER_SIZE)
+    {
+        close(fd);
+        return 0;
+    }
+
+    FileHeader fh;
+    deserialize_file_header(&fh, raw_hdr);
+    if (fh.magic != PTDB_FILE_MAGIC || fh.dim != 2)
+    {
+        close(fd);
+        return 0;
+    }
+
+    uint8_t hdr_buf[CHUNK_HEADER_2D_SIZE];
+    uint8_t *payload_buf = NULL;
+    size_t payload_capacity = 0;
+    uint64_t matched_points = 0;
+
+    while (1)
+    {
+        ssize_t h_read = read(fd, hdr_buf, CHUNK_HEADER_2D_SIZE);
+        if (h_read == 0)
+        {
+            break;
+        }
+        if (h_read != (ssize_t)CHUNK_HEADER_2D_SIZE)
+        {
+            break;
+        }
+
+        ChunkHeader2D ch;
+        deserialize_chunk_header_2d(&ch, hdr_buf);
+        if (ch.magic != PTDB_CHUNK_MAGIC)
+        {
+            break;
+        }
+
+        if (ch.end_time < range->min_time || ch.start_time > range->max_time)
+        {
+            lseek(fd, ch.payload_size, SEEK_CUR);
+            continue;
+        }
+
+        if (ch.max_x < range->min_x || ch.min_x > range->max_x ||
+            ch.max_y < range->min_y || ch.min_y > range->max_y)
+        {
+            lseek(fd, ch.payload_size, SEEK_CUR);
+            continue;
+        }
+
+        if (ch.payload_size != (uint32_t)ch.count * (uint32_t)sizeof(Point2D))
+        {
+            break;
+        }
+
+        if (ch.payload_size > payload_capacity)
+        {
+            uint8_t *new_buf = (uint8_t *)realloc(payload_buf, ch.payload_size);
+            if (!new_buf)
+            {
+                break;
+            }
+            payload_buf = new_buf;
+            payload_capacity = ch.payload_size;
+        }
+
+        if (read(fd, payload_buf, ch.payload_size) != (ssize_t)ch.payload_size)
+        {
+            break;
+        }
+
+        if (ptdb_crc32(payload_buf, ch.payload_size) != ch.checksum)
+        {
+            break;
+        }
+
+        for (uint32_t i = 0; i < ch.count; i++)
+        {
+            Point2D pt;
+            ptdb_get_point_2d(payload_buf, i, &pt);
+
+            if (pt.timestamp >= range->min_time && pt.timestamp <= range->max_time &&
+                pt.x >= range->min_x && pt.x <= range->max_x &&
+                pt.y >= range->min_y && pt.y <= range->max_y)
+            {
+                callback(&pt, user_data);
+                matched_points++;
+            }
+        }
+    }
+
+    if (payload_buf)
+    {
+        free(payload_buf);
+    }
+    close(fd);
+    return matched_points;
+}
+
+uint64_t ptdb_query_range_3d(const char *filepath, const PTDBQueryRange3D *range, ptdb_point_3d_callback callback, void *user_data)
+{
+    if (!filepath || !range || !callback)
+    {
+        return 0;
+    }
+
+    int fd = open(filepath, O_RDONLY);
+    if (fd == -1)
+    {
+        return 0;
+    }
+
+    uint8_t raw_hdr[FILE_HEADER_SIZE];
+    if (read(fd, raw_hdr, FILE_HEADER_SIZE) != (ssize_t)FILE_HEADER_SIZE)
+    {
+        close(fd);
+        return 0;
+    }
+
+    FileHeader fh;
+    deserialize_file_header(&fh, raw_hdr);
+    if (fh.magic != PTDB_FILE_MAGIC || fh.dim != 3)
+    {
+        close(fd);
+        return 0;
+    }
+
+    uint8_t hdr_buf[CHUNK_HEADER_3D_SIZE];
+    uint8_t *payload_buf = NULL;
+    size_t payload_capacity = 0;
+    uint64_t matched_points = 0;
+
+    while (1)
+    {
+        ssize_t h_read = read(fd, hdr_buf, CHUNK_HEADER_3D_SIZE);
+        if (h_read == 0)
+        {
+            break;
+        }
+        if (h_read != (ssize_t)CHUNK_HEADER_3D_SIZE)
+        {
+            break;
+        }
+
+        ChunkHeader3D ch;
+        deserialize_chunk_header_3d(&ch, hdr_buf);
+        if (ch.magic != PTDB_CHUNK_MAGIC)
+        {
+            break;
+        }
+
+        if (ch.end_time < range->min_time || ch.start_time > range->max_time)
+        {
+            lseek(fd, ch.payload_size, SEEK_CUR);
+            continue;
+        }
+
+        if (ch.max_x < range->min_x || ch.min_x > range->max_x ||
+            ch.max_y < range->min_y || ch.min_y > range->max_y ||
+            ch.max_z < range->min_z || ch.min_z > range->max_z)
+        {
+            lseek(fd, ch.payload_size, SEEK_CUR);
+            continue;
+        }
+
+        if (ch.payload_size != (uint32_t)ch.count * (uint32_t)sizeof(Point3D))
+        {
+            break;
+        }
+
+        if (ch.payload_size > payload_capacity)
+        {
+            uint8_t *new_buf = (uint8_t *)realloc(payload_buf, ch.payload_size);
+            if (!new_buf)
+            {
+                break;
+            }
+            payload_buf = new_buf;
+            payload_capacity = ch.payload_size;
+        }
+
+        if (read(fd, payload_buf, ch.payload_size) != (ssize_t)ch.payload_size)
+        {
+            break;
+        }
+
+        if (ptdb_crc32(payload_buf, ch.payload_size) != ch.checksum)
+        {
+            break;
+        }
+
+        for (uint32_t i = 0; i < ch.count; i++)
+        {
+            Point3D pt;
+            ptdb_get_point_3d(payload_buf, i, &pt);
+
+            if (pt.timestamp >= range->min_time && pt.timestamp <= range->max_time &&
+                pt.x >= range->min_x && pt.x <= range->max_x &&
+                pt.y >= range->min_y && pt.y <= range->max_y &&
+                pt.z >= range->min_z && pt.z <= range->max_z)
+            {
+                callback(&pt, user_data);
+                matched_points++;
+            }
+        }
+    }
+
+    if (payload_buf)
+    {
+        free(payload_buf);
+    }
+    close(fd);
+    return matched_points;
+}

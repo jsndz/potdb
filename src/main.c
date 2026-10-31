@@ -69,6 +69,14 @@ static void dump_database(const char *filepath)
     ptdb_reader_close(reader);
 }
 
+void print_cb(const Point2D *p, void *ud){
+    (void)ud;
+    printf("(%ld, %.4f, %.4f)\n", (long)p->timestamp, p->x, p->y);
+}
+void print_cb3(const Point3D *p, void *ud) {
+    (void)ud;
+    printf("(%ld, %.4f, %.4f, %.4f)\n", (long)p->timestamp, p->x, p->y, p->z);
+}
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -103,6 +111,60 @@ int main(int argc, char *argv[])
     {
         dump_database(db_filename);
         return 0;
+    }
+
+    if (argc >= 3 && strcmp(argv[2], "query") == 0)
+    {
+        PTDBReader *reader = ptdb_reader_open(db_filename);
+        if (!reader)
+        {
+            return 1;
+        }
+        uint8_t dim = ptdb_reader_get_dim(reader);
+        ptdb_reader_close(reader);
+
+        if (dim == 2)
+        {
+            if (argc < 9)
+            {
+                fprintf(stderr, "Usage: %s %s query <min_time> <max_time> <min_x> <max_x> <min_y> <max_y>\n", argv[0], argv[1]);
+                return 1;
+            }
+            PTDBQueryRange2D range = {
+                .min_time = (int64_t)atoll(argv[3]),
+                .max_time = (int64_t)atoll(argv[4]),
+                .min_x = (float)atof(argv[5]),
+                .max_x = (float)atof(argv[6]),
+                .min_y = (float)atof(argv[7]),
+                .max_y = (float)atof(argv[8])
+            };
+         
+            uint64_t matched = ptdb_query_range_2d(db_filename, &range, print_cb, NULL);
+            printf("Matched points: %lu\n", (unsigned long)matched);
+            return 0;
+        }
+        else
+        {
+            if (argc < 11)
+            {
+                fprintf(stderr, "Usage: %s %s query <min_time> <max_time> <min_x> <max_x> <min_y> <max_y> <min_z> <max_z>\n", argv[0], argv[1]);
+                return 1;
+            }
+            PTDBQueryRange3D range = {
+                .min_time = (int64_t)atoll(argv[3]),
+                .max_time = (int64_t)atoll(argv[4]),
+                .min_x = (float)atof(argv[5]),
+                .max_x = (float)atof(argv[6]),
+                .min_y = (float)atof(argv[7]),
+                .max_y = (float)atof(argv[8]),
+                .min_z = (float)atof(argv[9]),
+                .max_z = (float)atof(argv[10])
+            };
+         
+            uint64_t matched = ptdb_query_range_3d(db_filename, &range, print_cb3, NULL);
+            printf("Matched points: %lu\n", (unsigned long)matched);
+            return 0;
+        }
     }
 
     if (argc >= 3 && strcmp(argv[2], "insert") == 0)

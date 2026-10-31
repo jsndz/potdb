@@ -238,6 +238,64 @@ static void test_crc32_and_corruption_detection(void)
     printf("  -> PASSED\n");
 }
 
+static void count_cb_2d(const Point2D *pt, void *ud)
+{
+    (void)pt;
+    uint32_t *counter = (uint32_t *)ud;
+    (*counter)++;
+}
+
+static void test_range_query(void)
+{
+    printf("[Test 7] Spatiotemporal Range Query (Chunk-skipping)...\n");
+    unlink(TEST_DB_2D);
+    assert(ptdb_init(TEST_DB_2D, 2, PTDB_TIME_UNIT_MS) == 0);
+
+    PTDBConfig config = { .max_points = 50, .max_time_window_ms = 100000 };
+    PTDB *db = ptdb_open(TEST_DB_2D, &config);
+    assert(db != NULL);
+
+    for (int i = 0; i < 50; i++)
+    {
+        assert(ptdb_insert_2d(db, 1000 + i * 10, (float)i, (float)i) == 0);
+    }
+    assert(ptdb_flush(db) == 0);
+
+    for (int i = 50; i < 100; i++)
+    {
+        assert(ptdb_insert_2d(db, 2000 + i * 10, (float)i, (float)i) == 0);
+    }
+    assert(ptdb_flush(db) == 0);
+
+    for (int i = 100; i < 150; i++)
+    {
+        assert(ptdb_insert_2d(db, 5000 + i * 10, (float)i + 1000.0f, (float)i + 1000.0f) == 0);
+    }
+    assert(ptdb_close(db) == 0);
+
+    PTDBQueryRange2D q1 = {
+        .min_time = 1000, .max_time = 1200,
+        .min_x = 0.0f, .max_x = 20.0f,
+        .min_y = 0.0f, .max_y = 20.0f
+    };
+    uint32_t count = 0;
+    uint64_t matched = ptdb_query_range_2d(TEST_DB_2D, &q1, count_cb_2d, &count);
+    assert(matched == 21);
+    assert(count == 21);
+
+    PTDBQueryRange2D q_spatial_miss = {
+        .min_time = 5000, .max_time = 8000,
+        .min_x = 0.0f, .max_x = 100.0f,
+        .min_y = 0.0f, .max_y = 100.0f
+    };
+    count = 0;
+    matched = ptdb_query_range_2d(TEST_DB_2D, &q_spatial_miss, count_cb_2d, &count);
+    assert(matched == 0);
+
+    unlink(TEST_DB_2D);
+    printf("  -> PASSED\n");
+}
+
 int main(void)
 {
     printf("==================================================\n");
@@ -250,9 +308,10 @@ int main(void)
     test_time_window_flush();
     test_3d_coordinates_and_mbr();
     test_crc32_and_corruption_detection();
+    test_range_query();
 
     printf("==================================================\n");
-    printf("       ALL 6 TESTS PASSED SUCCESSFULLY!          \n");
+    printf("       ALL 7 TESTS PASSED SUCCESSFULLY!          \n");
     printf("==================================================\n");
     return 0;
 }
