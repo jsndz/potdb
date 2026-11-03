@@ -64,9 +64,18 @@ typedef struct {
     float x, y, z;
 } Point3D;
 
+#define PTDB_SYNC_ALWAYS 0
+#define PTDB_SYNC_NONE 1
+#define PTDB_SYNC_PERIODIC 2
+
+#define PTDB_DEFAULT_SYNC_MODE PTDB_SYNC_ALWAYS
+#define PTDB_DEFAULT_SYNC_INTERVAL_FLUSHES 10
+
 typedef struct {
     uint32_t max_points;
     uint32_t max_time_window_ms;
+    uint8_t  sync_mode;
+    uint32_t sync_interval_flushes;
 } PTDBConfig;
 
 #endif

@@ -1,0 +1,16 @@
+{
+  "label": "feat_durability_modes",
+  "timestamp": "2026-11-02 20:09:51",
+  "metrics": {
+    "write_tps_100": 22129,
+    "write_tps_500": 107716,
+    "write_tps_1000": 212204,
+    "write_tps_5000": 896117,
+    "write_tps_10000": 1487297,
+    "write_tps_50000": 4019535,
+    "read_tps": 16927942,
+    "read_mb_s": 259.01,
+    "accessor_2d_ns": 10.67,
+    "accessor_3d_ns": 15.33
+  }
+}

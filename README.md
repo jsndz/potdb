@@ -10,13 +10,18 @@ $$\text{Timestamp} \longrightarrow (x, y) \quad\text{or}\quad (x, y, z)$$
 
 - **Chunked Append-Only Architecture**: Points are accumulated in an in-memory buffer and flushed sequentially as atomic chunks. Existing data is never overwritten in place, eliminating write amplification, locking contention, and file fragmentation.
 - **Strict Byte-Level Serialization**: Custom Little-Endian byte-level encoders and decoders operate without compiler packing (`#pragma pack`) hazards, preventing unaligned CPU access faults (`SIGBUS`) and ensuring cross-platform file portability.
+- **Configurable Durability Modes**:
+  - `PTDB_SYNC_ALWAYS` *(Default)*: Invokes `fsync()` on every chunk flush for maximum durability.
+  - `PTDB_SYNC_PERIODIC`: Invokes `fsync()` once every $N$ chunk flushes (e.g., every 10 or 20 flushes) to balance throughput with crash-resilience.
+  - `PTDB_SYNC_NONE`: Bypasses `fsync()` entirely, delegating disk writeback to the OS Page Cache for extreme ingestion rates (up to **5.4 Million points/sec**).
+- **Two-Level Spatiotemporal Range Queries**: Filter points across both time intervals and spatial bounding boxes ($X, Y$ or $X, Y, Z$). Uses chunk headers to skip non-overlapping chunk payloads with `lseek()` before reading points.
 - **Dual Flush Triggers**:
   - **Capacity Trigger**: Flushes immediately when the buffer reaches `max_points` (default: 500).
   - **Time-Window Trigger**: Flushes when $(t_{\text{current}} - t_{\text{start}}) \ge \text{max\_time\_window\_ms}$ (default: 5,000 ms), guaranteeing bounded latency on low-frequency streams.
 - **Spatial Indexing & MBR**: Every chunk header stores a Minimum Bounding Rectangle (MBR) computed on the fly ($X, Y$ for 2D; $X, Y, Z$ for 3D) for efficient spatial pruning.
 - **Data Integrity via IEEE 802.3 CRC-32**: Every chunk payload is checksummed upon flush and verified during sequential scan to detect hardware bit-flips and silent corruption.
 - **Schema Lock**: Spatial dimension (2D or 3D) and time resolution (`ms`, `sec`, `us`, `ns`) are immutably locked in the 16-byte file header at initialization.
-- **Blazing Performance**: Ingests up to **4.3 Million points/sec** and scans at **17.2 Million points/sec** with full on-the-fly CRC-32 verification.
+- **Blazing Performance**: Ingests up to **5.4 Million points/sec** in async mode and scans at **17.2 Million points/sec** with full on-the-fly CRC-32 verification.
 
 ---
 
@@ -80,7 +85,7 @@ flowchart TD
 # Build the main potdb CLI binary
 make
 
-# Run core functional unit tests (schema lock, capacity & time flush, CRC-32)
+# Run core functional unit tests (schema lock, flush triggers, durability modes, range queries)
 make test
 
 # Run edge-case validation suite (boundary values, limits, corrupted files)
@@ -89,8 +94,11 @@ make edge
 # Run high-volume stress dump (1,000,000 points round-trip & multi-session append)
 make stress
 
-# Run empirical performance benchmarks
+# Run empirical performance benchmarks (terminal output)
 make bench
+
+# Run benchmark and record version-controlled snapshot with comparison deltas
+make bench-record MSG="my_feature" SYNC="always|periodic|none" [INTERVAL=10]
 
 # Run all test suites in sequence
 make all_tests
@@ -132,7 +140,17 @@ cat << 'EOF' | ./potdb positions_2d.db
 EOF
 ```
 
-### 4. Query / Dump Database Chunks
+### 4. Query Points Across Time and Space
+Select points matching both a time window and a spatial bounding box (with chunk-skipping acceleration):
+```bash
+# 2D Query: query <min_time> <max_time> <min_x> <max_x> <min_y> <max_y>
+./potdb positions_2d.db query 1700000000 1700003600 10.0 50.0 -20.0 20.0
+
+# 3D Query: query <min_time> <max_time> <min_x> <max_x> <min_y> <max_y> <min_z> <max_z>
+./potdb positions_3d.db query 1700000000 1700003600 10.0 50.0 -20.0 20.0 0.0 100.0
+```
+
+### 5. Query / Dump Database Chunks
 Inspect all chunks, MBR bounding boxes, CRC-32 verification status, and raw points:
 ```bash
 ./potdb positions_2d.db dump
@@ -150,35 +168,50 @@ Include [`include/ptdb.h`](include/ptdb.h) in your C application:
 #include "ptdb.h"
 
 // 1. Initialize database file
-ptdb_init("flight_log.db", 3, PTDB_TIME_UNIT_MS);
+ptdb_init("flight_log.db", 2, PTDB_TIME_UNIT_MS);
 
-// 2. Open for writing with custom buffer config
+// 2. Open for writing with custom buffer and durability config
 PTDBConfig config = {
     .max_points = 5000,
-    .max_time_window_ms = 10000
+    .max_time_window_ms = 10000,
+    .sync_mode = PTDB_SYNC_PERIODIC,     // PTDB_SYNC_ALWAYS | PTDB_SYNC_NONE | PTDB_SYNC_PERIODIC
+    .sync_interval_flushes = 10
 };
 PTDB *db = ptdb_open("flight_log.db", &config);
 
 // 3. Insert coordinates (returns -2 on non-monotonic timestamp)
-ptdb_insert_3d(db, 1700000000, 100.5f, 200.3f, 50.0f);
+ptdb_insert_2d(db, 1700000000, 100.5f, 200.3f);
 
 // 4. Force immediate flush to disk (optional)
 ptdb_flush(db);
 
-// 5. Close database (flushes remaining buffered points)
+// 5. Close database (flushes remaining buffered points and executes final fsync)
 ptdb_close(db);
 
-// 6. Read & traverse chunks sequentially
+// 6. Fast Spatiotemporal Range Query (Level 1 chunk skip + Level 2 point filter)
+PTDBQueryRange2D range = {
+    .min_time = 1700000000,
+    .max_time = 1700003600,
+    .min_x = 10.0f, .max_x = 150.0f,
+    .min_y = 50.0f, .max_y = 250.0f
+};
+
+void on_point(const Point2D *pt, void *user_data) {
+    // Process matching point pt->timestamp, pt->x, pt->y
+}
+
+uint64_t matches = ptdb_query_range_2d("flight_log.db", &range, on_point, NULL);
+
+// 7. Full Sequential Reader Traversal
 PTDBReader *reader = ptdb_reader_open("flight_log.db");
-ChunkHeader3D ch;
+ChunkHeader2D ch;
 void *points = NULL;
 uint32_t count = 0;
 
 while (ptdb_reader_next_chunk(reader, &ch, &points, &count) == 1) {
     for (uint32_t i = 0; i < count; i++) {
-        Point3D p;
-        ptdb_get_point_3d(points, i, &p);
-        // Process p.timestamp, p.x, p.y, p.z
+        Point2D p;
+        ptdb_get_point_2d(points, i, &p);
     }
 }
 ptdb_reader_close(reader);
@@ -188,28 +221,27 @@ ptdb_reader_close(reader);
 
 ## Performance Benchmarks
 
-Empirical performance measured on local SSD:
+Empirical performance measured on local SSD across durability modes:
 
-### Write Throughput vs Buffer Size (200,000 Points)
-Each flush invokes an `fsync()` to ensure hardware durability:
+### 1. Ingestion Throughput Across Durability Modes (200,000 Points)
 
-| Chunk Buffer (`max_points`) | Write Throughput | Storage Bandwidth | Chunk Flushes |
+| Chunk Buffer (`max_points`) | `PTDB_SYNC_ALWAYS` | `PTDB_SYNC_PERIODIC` (Every 10) | `PTDB_SYNC_NONE` (Page Cache) |
 | :--- | :--- | :--- | :--- |
-| **100** | 22,338 pts/sec | 0.35 MB/s | 2,000 |
-| **500** *(Default)* | 103,740 pts/sec | 1.59 MB/s | 400 |
-| **1,000** | 214,737 pts/sec | 3.29 MB/s | 200 |
-| **5,000** | 859,667 pts/sec | 13.12 MB/s | 40 |
-| **10,000** | 1,393,281 pts/sec | 21.27 MB/s | 20 |
-| **50,000** | **4,320,862 pts/sec** | **65.94 MB/s** | 4 |
+| **100** | 19,683 pts/sec | 194,779 pts/sec | **2,972,080 pts/sec** |
+| **500** *(Default)* | 96,668 pts/sec | 813,048 pts/sec | **4,365,202 pts/sec** |
+| **1,000** | 188,119 pts/sec | 1,385,184 pts/sec | **4,611,279 pts/sec** |
+| **5,000** | 774,522 pts/sec | 3,252,558 pts/sec | **5,492,982 pts/sec** |
+| **10,000** | 1,253,110 pts/sec | 4,250,237 pts/sec | **5,288,493 pts/sec** |
+| **50,000** | 3,049,760 pts/sec | 4,746,433 pts/sec | **5,403,534 pts/sec** |
 
-### Sequential Read & CRC-32 Scan (500,000 Points)
+### 2. Sequential Read & CRC-32 Scan (500,000 Points)
 - **Scan Rate**: **17,209,378 points/sec**
 - **Bandwidth**: **263.32 MB/sec**
 - **Integrity**: 100% verified across all chunks
 
-### In-Memory Point Accessor Latency
-- `ptdb_get_point_2d`: **10.97 ns/point** (~91M points/sec)
-- `ptdb_get_point_3d`: **13.31 ns/point** (~75M points/sec)
+### 3. In-Memory Point Accessor Latency
+- `ptdb_get_point_2d`: **10.67 ns/point** (~93M points/sec)
+- `ptdb_get_point_3d`: **15.33 ns/point** (~65M points/sec)
 
 ---
 
@@ -217,21 +249,31 @@ Each flush invokes an `fsync()` to ensure hardware durability:
 
 ```
 ├── include/
-│   ├── chunk.h            # Header layouts, constants, Point2D/3D definitions
+│   ├── chunk.h            # Header layouts, constants, Point2D/3D, PTDBConfig & sync modes
 │   ├── file.h             # FileHeader definition and time unit macros
-│   └── ptdb.h             # Public C engine API declarations
+│   ├── serialize.h        # Little-Endian encoders/decoders and header serializers
+│   ├── crc32.h            # IEEE 802.3 CRC-32 checksum declarations
+│   ├── writer.h           # Write engine declarations (init, open, insert, flush, close)
+│   ├── reader.h           # Read engine declarations (reader, range query cover functions)
+│   └── ptdb.h             # Master umbrella public API header
 ├── src/
-│   ├── main.c             # CLI application entry point (init, insert, dump)
-│   └── ptdb.c             # Storage engine, serializers, CRC32, and reader
+│   ├── main.c             # CLI application entry point (init, insert, query, dump)
+│   ├── crc32.c            # Precomputed table and checksum logic
+│   ├── writer.c           # Ingestion buffer, dual flush triggers, MBR calculation
+│   └── reader.c           # Sequential chunk reader and spatiotemporal query engine
 ├── bench/
-│   └── bench_ptdb.c       # Empirical throughput and latency benchmarks
+│   ├── bench_ptdb.c       # Empirical throughput and latency benchmark binary
+│   ├── record.sh          # POSIX shell automated comparison script
+│   └── history/           # Version-controlled JSON benchmark snapshots
 ├── tests/
-│   ├── test_unit.c        # Schema, flush triggers, and corruption tests
+│   ├── test_unit.c        # Schema, flush triggers, durability modes, range queries
 │   ├── test_edge_cases.c  # Coordinate bounds, limits, and malformed files
 │   └── test_stress.c      # 1M points round-trip and multi-session appends
 ├── docs/
+│   ├── auto_flush.md      # OS Page Cache, writeback mechanics & durability modes
 │   ├── byte_reading.md    # Serialization and unaligned memory access guide
-│   └── benchmark_report.md# Full architecture & performance benchmark report
+│   ├── benchmark_report.md# Architecture & performance analysis report
+│   └── benchmark_history.md# Cumulative benchmark comparison log
 ├── Makefile               # Modular compilation targets
 └── README.md              # Project documentation
 ```
@@ -240,5 +282,7 @@ Each flush invokes an `fsync()` to ensure hardware durability:
 
 ## Detailed Documentation
 
+- [`docs/auto_flush.md`](docs/auto_flush.md): In-depth guide on Linux Page Cache, kernel `b_dirty` queues, and the three durability modes.
 - [`docs/benchmark_report.md`](docs/benchmark_report.md): In-depth architecture diagrams, memory access analysis, and complete benchmark metrics.
+- [`docs/benchmark_history.md`](docs/benchmark_history.md): Living delta log tracking benchmark performance improvements across features.
 - [`docs/byte_reading.md`](docs/byte_reading.md): Detailed explanation of `#pragma pack(1)` alignment hazards, CPU faults, and byte-level serialization.

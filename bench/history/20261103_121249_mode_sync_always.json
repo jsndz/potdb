@@ -1,0 +1,16 @@
+{
+  "label": "mode_sync_always",
+  "timestamp": "2026-11-03 12:12:49",
+  "metrics": {
+    "write_tps_100": 19683,
+    "write_tps_500": 96668,
+    "write_tps_1000": 188119,
+    "write_tps_5000": 774522,
+    "write_tps_10000": 1253110,
+    "write_tps_50000": 3049760,
+    "read_tps": 9105305,
+    "read_mb_s": 139.32,
+    "accessor_2d_ns": 25.31,
+    "accessor_3d_ns": 32.81
+  }
+}

@@ -26,6 +26,8 @@ struct PTDB {
     float min_x, max_x;
     float min_y, max_y;
     float min_z, max_z;
+
+    uint32_t flushes_since_sync;
 };
 
 int ptdb_init(const char *filepath, uint8_t dim, uint8_t time_unit)
@@ -187,6 +189,15 @@ PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
         db->config.max_points = 65535;
     }
     db->config.max_time_window_ms = (config && config->max_time_window_ms > 0) ? config->max_time_window_ms : PTDB_DEFAULT_MAX_TIME_WINDOW_MS;
+    db->config.sync_mode = config ? config->sync_mode : PTDB_DEFAULT_SYNC_MODE;
+    if (db->config.sync_mode != PTDB_SYNC_ALWAYS &&
+        db->config.sync_mode != PTDB_SYNC_NONE &&
+        db->config.sync_mode != PTDB_SYNC_PERIODIC)
+    {
+        db->config.sync_mode = PTDB_DEFAULT_SYNC_MODE;
+    }
+    db->config.sync_interval_flushes = (config && config->sync_interval_flushes > 0) ? config->sync_interval_flushes : PTDB_DEFAULT_SYNC_INTERVAL_FLUSHES;
+    db->flushes_since_sync = 0;
 
     db->buffer = (uint8_t *)malloc(db->config.max_points * db->point_stride);
     if (!db->buffer)
@@ -294,10 +305,27 @@ int ptdb_flush(PTDB *db)
         return -1;
     }
 
-    if (fsync(db->fd) == -1)
+    if (db->config.sync_mode == PTDB_SYNC_ALWAYS)
     {
-        perror("ptdb_flush: fsync");
-        return -1;
+        if (fsync(db->fd) == -1)
+        {
+            perror("ptdb_flush: fsync");
+            return -1;
+        }
+        db->flushes_since_sync = 0;
+    }
+    else if (db->config.sync_mode == PTDB_SYNC_PERIODIC)
+    {
+        db->flushes_since_sync++;
+        if (db->flushes_since_sync >= db->config.sync_interval_flushes)
+        {
+            if (fsync(db->fd) == -1)
+            {
+                perror("ptdb_flush: fsync periodic");
+                return -1;
+            }
+            db->flushes_since_sync = 0;
+        }
     }
 
     db->buffered_count = 0;
@@ -479,6 +507,11 @@ int ptdb_close(PTDB *db)
     if (db->buffered_count > 0)
     {
         ptdb_flush(db);
+    }
+
+    if (db->fd != -1 && db->config.sync_mode != PTDB_SYNC_NONE)
+    {
+        fsync(db->fd);
     }
 
     if (db->buffer)

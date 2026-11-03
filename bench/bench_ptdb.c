@@ -29,13 +29,17 @@ static double get_time_sec(void)
     return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
 }
 
-static void bench_write_buffer_sizes(BenchmarkResults *res)
+static void bench_write_buffer_sizes(BenchmarkResults *res, uint8_t sync_mode, uint32_t sync_interval)
 {
     const uint32_t buffer_sizes[] = { 100, 500, 1000, 5000, 10000, 50000 };
     const size_t num_sizes = sizeof(buffer_sizes) / sizeof(buffer_sizes[0]);
     const uint32_t TOTAL_POINTS = 200000;
 
-    printf("\n--- 1. Ingestion Throughput vs Chunk Buffer Size (%u 2D Points) ---\n", TOTAL_POINTS);
+    const char *mode_str = "ALWAYS";
+    if (sync_mode == PTDB_SYNC_NONE) mode_str = "NONE";
+    else if (sync_mode == PTDB_SYNC_PERIODIC) mode_str = "PERIODIC";
+
+    printf("\n--- 1. Ingestion Throughput vs Chunk Buffer Size (%u 2D Points, Sync: %s) ---\n", TOTAL_POINTS, mode_str);
     printf("%-12s | %-12s | %-14s | %-12s | %-12s\n",
            "max_points", "Elapsed (s)", "Throughput (p/s)", "Rate (MB/s)", "Flushes");
     printf("-------------+--------------+----------------+--------------+-------------\n");
@@ -46,7 +50,12 @@ static void bench_write_buffer_sizes(BenchmarkResults *res)
         unlink(BENCH_DB);
         assert(ptdb_init(BENCH_DB, 2, PTDB_TIME_UNIT_MS) == 0);
 
-        PTDBConfig config = { .max_points = bs, .max_time_window_ms = 10000000 };
+        PTDBConfig config = {
+            .max_points = bs,
+            .max_time_window_ms = 10000000,
+            .sync_mode = sync_mode,
+            .sync_interval_flushes = sync_interval
+        };
         PTDB *db = ptdb_open(BENCH_DB, &config);
         assert(db != NULL);
 
@@ -195,11 +204,41 @@ int main(int argc, char *argv[])
     BenchmarkResults res;
     memset(&res, 0, sizeof(res));
 
+    uint8_t sync_mode = PTDB_SYNC_ALWAYS;
+    uint32_t sync_interval = 10;
+    const char *out_json = NULL;
+
+    if (argc >= 2)
+    {
+        out_json = argv[1];
+    }
+
+    if (argc >= 3)
+    {
+        if (strcmp(argv[2], "none") == 0 || strcmp(argv[2], "NONE") == 0)
+        {
+            sync_mode = PTDB_SYNC_NONE;
+        }
+        else if (strcmp(argv[2], "periodic") == 0 || strcmp(argv[2], "PERIODIC") == 0)
+        {
+            sync_mode = PTDB_SYNC_PERIODIC;
+            if (argc >= 4)
+            {
+                sync_interval = (uint32_t)atoi(argv[3]);
+                if (sync_interval == 0) sync_interval = 10;
+            }
+        }
+        else
+        {
+            sync_mode = PTDB_SYNC_ALWAYS;
+        }
+    }
+
     printf("==================================================\n");
     printf("          PTDB ENGINE PERFORMANCE BENCHMARK       \n");
     printf("==================================================\n");
 
-    bench_write_buffer_sizes(&res);
+    bench_write_buffer_sizes(&res, sync_mode, sync_interval);
     bench_read_throughput(&res);
     bench_point_accessors(&res);
 
@@ -207,7 +246,7 @@ int main(int argc, char *argv[])
     printf("          BENCHMARK COMPLETED SUCCESSFULLY!       \n");
     printf("==================================================\n");
 
-    if (argc >= 2)
+    if (out_json)
     {
         FILE *f = fopen(argv[1], "w");
         if (f)

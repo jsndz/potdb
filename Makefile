@@ -51,7 +51,7 @@ bench: $(BENCH_BIN)
 	@./$(BENCH_BIN)
 
 bench-record: $(BENCH_BIN)
-	@./bench/record.sh "$(MSG)"
+	@./bench/record.sh "$(MSG)" "$(SYNC)" "$(INTERVAL)"
 
 all_tests: test edge stress
 

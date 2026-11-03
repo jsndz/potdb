@@ -2,6 +2,8 @@
 set -e
 
 LABEL="${1:-snapshot}"
+SYNC_MODE="${2:-always}"
+SYNC_INTERVAL="${3:-10}"
 HISTORY_DIR="bench/history"
 DOC_FILE="docs/benchmark_history.md"
 TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
@@ -13,7 +15,7 @@ SNAPSHOT_FILE="${HISTORY_DIR}/${DATE_KEY}_${SAFE_LABEL}.json"
 mkdir -p "$HISTORY_DIR"
 mkdir -p "$(dirname "$DOC_FILE")"
 
-./build/bench_ptdb "$RAW_METRICS_FILE"
+./build/bench_ptdb "$RAW_METRICS_FILE" "$SYNC_MODE" "$SYNC_INTERVAL"
 
 LATEST_BEFORE=$(ls -1t "$HISTORY_DIR"/*.json 2>/dev/null | grep -v "$RAW_METRICS_FILE" | grep -v "$SNAPSHOT_FILE" | head -n 1 || true)
 

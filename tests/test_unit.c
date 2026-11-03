@@ -296,6 +296,63 @@ static void test_range_query(void)
     printf("  -> PASSED\n");
 }
 
+static void test_durability_modes(void)
+{
+    printf("[Test 8] Configurable Durability Modes (ALWAYS, NONE, PERIODIC)...\n");
+    unlink(TEST_DB_2D);
+    assert(ptdb_init(TEST_DB_2D, 2, PTDB_TIME_UNIT_MS) == 0);
+
+    PTDBConfig cfg_none = {
+        .max_points = 10,
+        .max_time_window_ms = 10000,
+        .sync_mode = PTDB_SYNC_NONE
+    };
+    PTDB *db = ptdb_open(TEST_DB_2D, &cfg_none);
+    assert(db != NULL);
+    for (int i = 0; i < 25; i++)
+    {
+        assert(ptdb_insert_2d(db, 1000 + i * 10, (float)i, (float)i) == 0);
+    }
+    assert(ptdb_close(db) == 0);
+
+    PTDBReader *reader = ptdb_reader_open(TEST_DB_2D);
+    assert(reader != NULL);
+    uint32_t cnt = 0, total_points = 0;
+    while (ptdb_reader_next_chunk(reader, NULL, NULL, &cnt) == 1)
+    {
+        total_points += cnt;
+    }
+    assert(total_points == 25);
+    ptdb_reader_close(reader);
+
+    PTDBConfig cfg_periodic = {
+        .max_points = 10,
+        .max_time_window_ms = 10000,
+        .sync_mode = PTDB_SYNC_PERIODIC,
+        .sync_interval_flushes = 3
+    };
+    db = ptdb_open(TEST_DB_2D, &cfg_periodic);
+    assert(db != NULL);
+    for (int i = 25; i < 60; i++)
+    {
+        assert(ptdb_insert_2d(db, 1000 + i * 10, (float)i, (float)i) == 0);
+    }
+    assert(ptdb_close(db) == 0);
+
+    reader = ptdb_reader_open(TEST_DB_2D);
+    assert(reader != NULL);
+    total_points = 0;
+    while (ptdb_reader_next_chunk(reader, NULL, NULL, &cnt) == 1)
+    {
+        total_points += cnt;
+    }
+    assert(total_points == 60);
+    ptdb_reader_close(reader);
+
+    unlink(TEST_DB_2D);
+    printf("  -> PASSED\n");
+}
+
 int main(void)
 {
     printf("==================================================\n");
@@ -309,9 +366,10 @@ int main(void)
     test_3d_coordinates_and_mbr();
     test_crc32_and_corruption_detection();
     test_range_query();
+    test_durability_modes();
 
     printf("==================================================\n");
-    printf("       ALL 7 TESTS PASSED SUCCESSFULLY!          \n");
+    printf("       ALL 8 TESTS PASSED SUCCESSFULLY!          \n");
     printf("==================================================\n");
     return 0;
 }
