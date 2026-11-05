@@ -261,6 +261,14 @@ Empirical performance measured on local SSD across durability modes:
 │   ├── crc32.c            # Precomputed table and checksum logic
 │   ├── writer.c           # Ingestion buffer, dual flush triggers, MBR calculation
 │   └── reader.c           # Sequential chunk reader and spatiotemporal query engine
+├── examples/
+│   └── quickstart.c       # Self-contained embedded DB example
+├── web/
+│   ├── index.html         # In-browser GPS walk tracker UI
+│   ├── style.css          # Responsive dark-mode map interface styling
+│   ├── app.js             # Wasm engine lifecycle, GPS hooks, and Leaflet polyline renderer
+│   ├── potdb.js           # Emscripten glue code & virtual filesystem
+│   └── potdb.wasm         # Compiled WebAssembly C engine
 ├── bench/
 │   ├── bench_ptdb.c       # Empirical throughput and latency benchmark binary
 │   ├── record.sh          # POSIX shell automated comparison script
@@ -270,11 +278,14 @@ Empirical performance measured on local SSD across durability modes:
 │   ├── test_edge_cases.c  # Coordinate bounds, limits, and malformed files
 │   └── test_stress.c      # 1M points round-trip and multi-session appends
 ├── docs/
+│   ├── integration_guide.md# Developer handbook for embedding potDB in any application
+│   ├── embedding_approaches.md # In-depth guide to FFI, Native Addons, and Sidecar architectures
+│   ├── wasm_compilation_guide.md # WebAssembly compilation & in-browser embedding guide
 │   ├── auto_flush.md      # OS Page Cache, writeback mechanics & durability modes
 │   ├── byte_reading.md    # Serialization and unaligned memory access guide
 │   ├── benchmark_report.md# Architecture & performance analysis report
 │   └── benchmark_history.md# Cumulative benchmark comparison log
-├── Makefile               # Modular compilation targets
+├── Makefile               # Modular compilation targets (potdb, lib, test, bench)
 └── README.md              # Project documentation
 ```
 
@@ -282,7 +293,12 @@ Empirical performance measured on local SSD across durability modes:
 
 ## Detailed Documentation
 
+- [**`docs/integration_guide.md`**](docs/integration_guide.md): Developer handbook for embedding `potDB` in any application (static linking, CMake, tuning recipes).
+- [**`docs/embedding_approaches.md`**](docs/embedding_approaches.md): In-depth breakdown of the three multi-stack architectures (In-Process FFI, Native Addons, and Micro-Daemon sidecars).
+- [**`docs/wasm_compilation_guide.md`**](docs/wasm_compilation_guide.md): WebAssembly (Wasm) compilation guide using Emscripten for 100% client-side browser apps.
 - [`docs/auto_flush.md`](docs/auto_flush.md): In-depth guide on Linux Page Cache, kernel `b_dirty` queues, and the three durability modes.
 - [`docs/benchmark_report.md`](docs/benchmark_report.md): In-depth architecture diagrams, memory access analysis, and complete benchmark metrics.
 - [`docs/benchmark_history.md`](docs/benchmark_history.md): Living delta log tracking benchmark performance improvements across features.
 - [`docs/byte_reading.md`](docs/byte_reading.md): Detailed explanation of `#pragma pack(1)` alignment hazards, CPU faults, and byte-level serialization.
+
+

@@ -8,17 +8,27 @@ BENCH_DIR = bench
 BUILD_DIR = build
 
 TARGET = $(BUILD_DIR)/potdb
+LIB_TARGET = $(BUILD_DIR)/libptdb.a
 ENGINE_SRCS = $(SRC_DIR)/crc32.c $(SRC_DIR)/writer.c $(SRC_DIR)/reader.c
+ENGINE_OBJS = $(BUILD_DIR)/crc32.o $(BUILD_DIR)/writer.o $(BUILD_DIR)/reader.o
 
 TEST_UNIT_BIN = $(BUILD_DIR)/test_unit
 TEST_EDGE_BIN = $(BUILD_DIR)/test_edge
 TEST_STRESS_BIN = $(BUILD_DIR)/test_stress
 BENCH_BIN = $(BUILD_DIR)/bench_ptdb
 
-all: potdb
+all: potdb lib
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(LIB_TARGET): $(ENGINE_OBJS)
+	ar rcs $@ $^
+
+lib: $(LIB_TARGET)
 
 $(TARGET): $(SRC_DIR)/main.c $(ENGINE_SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -55,7 +65,23 @@ bench-record: $(BENCH_BIN)
 
 all_tests: test edge stress
 
-clean:
-	rm -rf $(BUILD_DIR) potdb *.o *.db *.log
+WASM_DIR = web
+WASM_TARGET = $(WASM_DIR)/potdb.js
+EMCC ?= $(shell which emcc 2>/dev/null || echo /usr/lib/emscripten/emcc)
 
-.PHONY: all test edge stress bench bench-record all_tests clean potdb
+wasm: $(WASM_TARGET)
+
+$(WASM_TARGET): $(ENGINE_SRCS)
+	mkdir -p $(WASM_DIR)
+	$(EMCC) -O3 -I$(INC_DIR) $^ \
+		-s WASM=1 \
+		-s FORCE_FILESYSTEM=1 \
+		-s ALLOW_MEMORY_GROWTH=1 \
+		-s EXPORTED_FUNCTIONS=_ptdb_init,_ptdb_open,_ptdb_close,_ptdb_insert_2d,_ptdb_insert_3d,_ptdb_query_range_2d,_ptdb_reader_open,_ptdb_reader_close,_ptdb_reader_next_chunk,_ptdb_get_point_2d,_malloc,_free \
+		-s EXPORTED_RUNTIME_METHODS=ccall,cwrap,FS \
+		-o $@
+
+clean:
+	rm -rf $(BUILD_DIR) $(WASM_DIR)/potdb.js $(WASM_DIR)/potdb.wasm potdb *.o *.db *.log
+
+.PHONY: all test edge stress bench bench-record all_tests clean potdb lib wasm
