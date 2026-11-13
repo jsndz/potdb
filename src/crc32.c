@@ -24,17 +24,21 @@ static void init_crc32_table(void)
     crc32_initialized = 1;
 }
 
-uint32_t ptdb_crc32(const void *data, size_t length)
+uint32_t ptdb_crc32_update(uint32_t crc, const void *data, size_t length)
 {
     if (!crc32_initialized)
     {
         init_crc32_table();
     }
     const uint8_t *buf = (const uint8_t *)data;
-    uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++)
     {
         crc = crc32_table[(crc ^ buf[i]) & 0xFF] ^ (crc >> 8);
     }
-    return crc ^ 0xFFFFFFFF;
+    return crc;
+}
+
+uint32_t ptdb_crc32(const void *data, size_t length)
+{
+    return ptdb_crc32_update(0xFFFFFFFF, data, length) ^ 0xFFFFFFFF;
 }

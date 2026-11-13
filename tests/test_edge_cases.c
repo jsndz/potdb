@@ -285,6 +285,86 @@ static void test_corrupted_and_malformed_files(void)
     printf("  -> PASSED\n");
 }
 
+static void test_report_issue_fixes(void)
+{
+    printf("[Edge Test 5] Robustness & Reliability Issue Fixes Verification...\n");
+    const char *test_db = "edge_test_fixes.db";
+    unlink(test_db);
+
+    // 1. Test Issue 7: ptdb_init with directory sync
+    assert(ptdb_init(test_db, 2, PTDB_TIME_UNIT_MS) == 0);
+
+    // 2. Test Issue 5: ptdb_open restoring last_timestamp
+    PTDB *db = ptdb_open(test_db, NULL);
+    assert(db != NULL);
+    for (int i = 0; i < 10; i++)
+    {
+        assert(ptdb_insert_2d(db, 1000 + i * 100, (float)i, (float)i) == 0);
+    }
+    assert(ptdb_close(db) == 0);
+
+    // Reopen DB: last_timestamp should be restored to 1900
+    db = ptdb_open(test_db, NULL);
+    assert(db != NULL);
+    // Out-of-order point (1500 < 1900) must be rejected
+    assert(ptdb_insert_2d(db, 1500, 1.0f, 1.0f) == -2);
+    // In-order point (2000 >= 1900) must succeed
+    assert(ptdb_insert_2d(db, 2000, 10.0f, 10.0f) == 0);
+
+    // 3. Test Issue 4: ptdb_poll wall-clock flush
+    // max_time_window_ms is default 5000ms. Point 2000 has been inserted.
+    assert(ptdb_poll(db, 3000) == 0); // 3000 - 2000 = 1000 < 5000: no flush
+    assert(ptdb_poll(db, 7500) == 1); // 7500 - 2000 = 5500 >= 5000: flush triggered!
+    assert(ptdb_close(db) == 0);
+
+    // 4. Test Issue 1: Torn trailing chunk truncation on ptdb_open & subsequent append accessibility
+    // Current DB has 2 valid chunks. Let's append 15 bytes of torn junk to simulate crash mid-header.
+    int fd = open(test_db, O_WRONLY | O_APPEND);
+    assert(fd != -1);
+    uint8_t junk[15] = { 'C', 'H', 0x01, 0x00, 0xAA, 0xBB, 0xCC };
+    assert(write(fd, junk, sizeof(junk)) == (ssize_t)sizeof(junk));
+    close(fd);
+
+    // Opening with ptdb_open should detect torn chunk and truncate back to end of 2nd chunk
+    db = ptdb_open(test_db, NULL);
+    assert(db != NULL);
+    // Append a 3rd valid chunk
+    assert(ptdb_insert_2d(db, 8000, 20.0f, 20.0f) == 0);
+    assert(ptdb_insert_2d(db, 8100, 21.0f, 21.0f) == 0);
+    assert(ptdb_close(db) == 0);
+
+    // Reader should seamlessly read all 3 chunks with zero errors!
+    PTDBReader *reader = ptdb_reader_open(test_db);
+    assert(reader != NULL);
+    ChunkHeader2D ch;
+    void *pts = NULL;
+    uint32_t cnt = 0;
+    int chunks_read = 0;
+    while (ptdb_reader_next_chunk(reader, &ch, &pts, &cnt) == 1)
+    {
+        chunks_read++;
+    }
+    assert(chunks_read == 3);
+    ptdb_reader_close(reader);
+
+    // 5. Test Issue 3: CRC-32 covers header fields as well as payload
+    // Corrupt a header field in chunk 1 (min_x float at offset FILE_HEADER_SIZE + 20)
+    fd = open(test_db, O_RDWR);
+    assert(fd != -1);
+    float corrupted_coord = 9999.0f;
+    assert(pwrite(fd, &corrupted_coord, sizeof(float), FILE_HEADER_SIZE + 20) == (ssize_t)sizeof(float));
+    close(fd);
+
+    reader = ptdb_reader_open(test_db);
+    assert(reader != NULL);
+    int res = ptdb_reader_next_chunk(reader, &ch, &pts, &cnt);
+    assert(res == -2); // Checksum mismatch detected on corrupted header!
+    ptdb_reader_close(reader);
+
+    unlink(test_db);
+    printf("  -> PASSED\n");
+}
+
 int main(void)
 {
     printf("==================================================\n");
@@ -295,6 +375,7 @@ int main(void)
     test_coordinate_edges();
     test_buffer_and_config_edges();
     test_corrupted_and_malformed_files();
+    test_report_issue_fixes();
 
     printf("==================================================\n");
     printf("       ALL EDGE-CASE TESTS PASSED SUCCESSFULLY!   \n");

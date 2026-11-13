@@ -157,7 +157,9 @@ int ptdb_reader_next_chunk(PTDBReader *reader, void *header_out, void **points_o
         return -1;
     }
 
-    uint32_t computed_checksum = ptdb_crc32(reader->points_buffer, payload_size);
+    uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, header_buf, reader->chunk_header_size - 4);
+    crc = ptdb_crc32_update(crc, reader->points_buffer, payload_size);
+    uint32_t computed_checksum = crc ^ 0xFFFFFFFF;
     if (computed_checksum != expected_checksum)
     {
         fprintf(stderr, "Error: Checksum mismatch in chunk (expected 0x%08X, got 0x%08X)\n",
@@ -310,7 +312,9 @@ uint64_t ptdb_query_range_2d(const char *filepath, const PTDBQueryRange2D *range
             break;
         }
 
-        if (ptdb_crc32(payload_buf, ch.payload_size) != ch.checksum)
+        uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, hdr_buf, CHUNK_HEADER_2D_SIZE - 4);
+        crc = ptdb_crc32_update(crc, payload_buf, ch.payload_size);
+        if ((crc ^ 0xFFFFFFFF) != ch.checksum)
         {
             break;
         }
@@ -425,7 +429,9 @@ uint64_t ptdb_query_range_3d(const char *filepath, const PTDBQueryRange3D *range
             break;
         }
 
-        if (ptdb_crc32(payload_buf, ch.payload_size) != ch.checksum)
+        uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, hdr_buf, CHUNK_HEADER_3D_SIZE - 4);
+        crc = ptdb_crc32_update(crc, payload_buf, ch.payload_size);
+        if ((crc ^ 0xFFFFFFFF) != ch.checksum)
         {
             break;
         }

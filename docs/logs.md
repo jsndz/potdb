@@ -1,5 +1,4 @@
 
-## 23/10/26
 ### Resigning Log
 
 Lets start with how the project was before,
@@ -11,8 +10,7 @@ Then i started working on WAL and when implementing rollback, I realised for a f
 
 So Lets redesign PotDB.
 
-## 29/10/26
-## an append log which is chunked 
+### an append log which is chunked 
 Based on the simple idea of time-series data being ordered we are doing a using a append only file to store the data in disk.
 This is better than other available option based on how fast it is for read and write.
 For crash recovery kept a time based flushing mechanism so that even if the crash occurs we may loose minimum amount of data.

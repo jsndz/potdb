@@ -1,4 +1,8 @@
-# potDB (PTDB)
+<div align="center">
+  <img src="logo.svg" alt="potDB Logo" width="100" height="100" />
+  <h1>potDB (PTDB)</h1>
+  <p><strong>Lightweight, Append-Only On-Disk Spatial Time-Series Database in Pure C99</strong></p>
+</div>
 
 **potDB** (PTDB - Point Time-Series Database) is a lightweight, append-only on-disk storage engine written in C99, designed specifically for recording, streaming, and querying high-frequency 2D and 3D spatial time-series coordinates.
 

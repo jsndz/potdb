@@ -30,6 +30,61 @@ struct PTDB {
     uint32_t flushes_since_sync;
 };
 
+static ssize_t ptdb_write_all(int fd, const void *buf, size_t count)
+{
+    const uint8_t *ptr = (const uint8_t *)buf;
+    size_t total_written = 0;
+    while (total_written < count)
+    {
+        ssize_t written = write(fd, ptr + total_written, count - total_written);
+        if (written < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            return -1;
+        }
+        if (written == 0)
+        {
+            return -1;
+        }
+        total_written += (size_t)written;
+    }
+    return (ssize_t)total_written;
+}
+
+static void sync_parent_directory(const char *filepath)
+{
+    char dir_buf[1024];
+    const char *last_slash = strrchr(filepath, '/');
+    if (!last_slash)
+    {
+        strcpy(dir_buf, ".");
+    }
+    else if (last_slash == filepath)
+    {
+        strcpy(dir_buf, "/");
+    }
+    else
+    {
+        size_t dir_len = (size_t)(last_slash - filepath);
+        if (dir_len >= sizeof(dir_buf))
+        {
+            return;
+        }
+        memcpy(dir_buf, filepath, dir_len);
+        dir_buf[dir_len] = '\0';
+    }
+
+    int dir_fd = open(dir_buf, O_RDONLY | O_DIRECTORY);
+    if (dir_fd != -1)
+    {
+        fsync(dir_fd);
+        close(dir_fd);
+    }
+}
+
 int ptdb_init(const char *filepath, uint8_t dim, uint8_t time_unit)
 {
     if (dim != 2 && dim != 3)
@@ -77,7 +132,7 @@ int ptdb_init(const char *filepath, uint8_t dim, uint8_t time_unit)
     uint8_t raw_hdr[FILE_HEADER_SIZE];
     serialize_file_header(raw_hdr, &header);
 
-    ssize_t bytes_written = write(fd, raw_hdr, FILE_HEADER_SIZE);
+    ssize_t bytes_written = ptdb_write_all(fd, raw_hdr, FILE_HEADER_SIZE);
     if (bytes_written != (ssize_t)FILE_HEADER_SIZE)
     {
         perror("ptdb_init: write header");
@@ -91,6 +146,8 @@ int ptdb_init(const char *filepath, uint8_t dim, uint8_t time_unit)
         close(fd);
         return -1;
     }
+
+    sync_parent_directory(filepath);
 
     close(fd);
     return 0;
@@ -208,18 +265,141 @@ PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
         return NULL;
     }
 
-    db->buffered_count = 0;
-    db->has_first_point = false;
-    db->last_timestamp = INT64_MIN;
+    off_t last_valid_offset = (off_t)FILE_HEADER_SIZE;
+    int64_t last_chunk_end_time = INT64_MIN;
+    bool found_valid_chunk = false;
 
-    if (lseek(fd, 0, SEEK_END) == -1)
+    if (lseek(fd, (off_t)FILE_HEADER_SIZE, SEEK_SET) == -1)
     {
-        perror("ptdb_open: lseek to end");
+        perror("ptdb_open: lseek to header end");
         free(db->buffer);
         free(db);
         close(fd);
         return NULL;
     }
+
+    while (1)
+    {
+        off_t chunk_start = lseek(fd, 0, SEEK_CUR);
+        if (chunk_start == -1)
+        {
+            break;
+        }
+
+        uint8_t hdr_buf[64];
+        ssize_t h_read = read(fd, hdr_buf, db->chunk_header_size);
+        if (h_read == 0)
+        {
+            break;
+        }
+        if (h_read != (ssize_t)db->chunk_header_size)
+        {
+            break;
+        }
+
+        uint16_t magic = get_le16(hdr_buf + 0);
+        if (magic != PTDB_CHUNK_MAGIC)
+        {
+            break;
+        }
+
+        uint16_t count;
+        int64_t end_time;
+        uint32_t payload_size;
+        uint32_t checksum;
+
+        if (db->dim == 2)
+        {
+            ChunkHeader2D ch;
+            deserialize_chunk_header_2d(&ch, hdr_buf);
+            count = ch.count;
+            end_time = ch.end_time;
+            payload_size = ch.payload_size;
+            checksum = ch.checksum;
+        }
+        else
+        {
+            ChunkHeader3D ch;
+            deserialize_chunk_header_3d(&ch, hdr_buf);
+            count = ch.count;
+            end_time = ch.end_time;
+            payload_size = ch.payload_size;
+            checksum = ch.checksum;
+        }
+
+        if (payload_size != (uint32_t)count * (uint32_t)db->point_stride)
+        {
+            break;
+        }
+
+        uint8_t *chk_buf = NULL;
+        bool allocated = false;
+        if (payload_size <= db->config.max_points * db->point_stride)
+        {
+            chk_buf = db->buffer;
+        }
+        else
+        {
+            chk_buf = (uint8_t *)malloc(payload_size);
+            if (!chk_buf)
+            {
+                break;
+            }
+            allocated = true;
+        }
+
+        ssize_t p_read = read(fd, chk_buf, payload_size);
+        if (p_read != (ssize_t)payload_size)
+        {
+            if (allocated)
+            {
+                free(chk_buf);
+            }
+            break;
+        }
+
+        uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, hdr_buf, db->chunk_header_size - 4);
+        crc = ptdb_crc32_update(crc, chk_buf, payload_size);
+        uint32_t computed_crc = crc ^ 0xFFFFFFFF;
+        if (allocated)
+        {
+            free(chk_buf);
+        }
+
+        if (computed_crc != checksum)
+        {
+            break;
+        }
+
+        last_valid_offset = chunk_start + (off_t)db->chunk_header_size + (off_t)payload_size;
+        last_chunk_end_time = end_time;
+        found_valid_chunk = true;
+    }
+
+    if (file_length > last_valid_offset)
+    {
+        if (ftruncate(fd, last_valid_offset) == -1)
+        {
+            perror("ptdb_open: ftruncate torn chunk");
+            free(db->buffer);
+            free(db);
+            close(fd);
+            return NULL;
+        }
+    }
+
+    if (lseek(fd, last_valid_offset, SEEK_SET) == -1)
+    {
+        perror("ptdb_open: lseek to last valid offset");
+        free(db->buffer);
+        free(db);
+        close(fd);
+        return NULL;
+    }
+
+    db->buffered_count = 0;
+    db->has_first_point = false;
+    db->last_timestamp = found_valid_chunk ? last_chunk_end_time : INT64_MIN;
 
     return db;
 }
@@ -236,14 +416,14 @@ int ptdb_flush(PTDB *db)
         return 0;
     }
 
-    uint32_t payload_size = db->buffered_count * (uint32_t)db->point_stride;
-    uint32_t checksum = ptdb_crc32(db->buffer, payload_size);
-
-    if (lseek(db->fd, 0, SEEK_END) == -1)
+    off_t chunk_start = lseek(db->fd, 0, SEEK_END);
+    if (chunk_start == -1)
     {
         perror("ptdb_flush: lseek");
         return -1;
     }
+
+    uint32_t payload_size = db->buffered_count * (uint32_t)db->point_stride;
 
     if (db->dim == 2)
     {
@@ -258,15 +438,25 @@ int ptdb_flush(PTDB *db)
         header.min_y = db->min_y;
         header.max_y = db->max_y;
         header.payload_size = payload_size;
-        header.checksum = checksum;
+        header.checksum = 0;
 
         uint8_t raw_hdr[CHUNK_HEADER_2D_SIZE];
         serialize_chunk_header_2d(raw_hdr, &header);
 
-        ssize_t h_written = write(db->fd, raw_hdr, CHUNK_HEADER_2D_SIZE);
+        uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, raw_hdr, CHUNK_HEADER_2D_SIZE - 4);
+        crc = ptdb_crc32_update(crc, db->buffer, payload_size);
+        header.checksum = crc ^ 0xFFFFFFFF;
+        put_le32(raw_hdr + 40, header.checksum);
+
+        ssize_t h_written = ptdb_write_all(db->fd, raw_hdr, CHUNK_HEADER_2D_SIZE);
         if (h_written != (ssize_t)CHUNK_HEADER_2D_SIZE)
         {
             perror("ptdb_flush: write 2D header");
+            if (ftruncate(db->fd, chunk_start) == -1)
+            {
+                perror("ptdb_flush: ftruncate header rollback");
+            }
+            lseek(db->fd, chunk_start, SEEK_SET);
             return -1;
         }
     }
@@ -285,23 +475,38 @@ int ptdb_flush(PTDB *db)
         header.min_z = db->min_z;
         header.max_z = db->max_z;
         header.payload_size = payload_size;
-        header.checksum = checksum;
+        header.checksum = 0;
 
         uint8_t raw_hdr[CHUNK_HEADER_3D_SIZE];
         serialize_chunk_header_3d(raw_hdr, &header);
 
-        ssize_t h_written = write(db->fd, raw_hdr, CHUNK_HEADER_3D_SIZE);
+        uint32_t crc = ptdb_crc32_update(0xFFFFFFFF, raw_hdr, CHUNK_HEADER_3D_SIZE - 4);
+        crc = ptdb_crc32_update(crc, db->buffer, payload_size);
+        header.checksum = crc ^ 0xFFFFFFFF;
+        put_le32(raw_hdr + 48, header.checksum);
+
+        ssize_t h_written = ptdb_write_all(db->fd, raw_hdr, CHUNK_HEADER_3D_SIZE);
         if (h_written != (ssize_t)CHUNK_HEADER_3D_SIZE)
         {
             perror("ptdb_flush: write 3D header");
+            if (ftruncate(db->fd, chunk_start) == -1)
+            {
+                perror("ptdb_flush: ftruncate header rollback");
+            }
+            lseek(db->fd, chunk_start, SEEK_SET);
             return -1;
         }
     }
 
-    ssize_t b_written = write(db->fd, db->buffer, payload_size);
+    ssize_t b_written = ptdb_write_all(db->fd, db->buffer, payload_size);
     if (b_written != (ssize_t)payload_size)
     {
         perror("ptdb_flush: write payload");
+        if (ftruncate(db->fd, chunk_start) == -1)
+        {
+            perror("ptdb_flush: ftruncate payload rollback");
+        }
+        lseek(db->fd, chunk_start, SEEK_SET);
         return -1;
     }
 
@@ -497,6 +702,24 @@ int ptdb_insert_point(PTDB *db, const void *point)
     return -1;
 }
 
+int ptdb_poll(PTDB *db, int64_t current_time)
+{
+    if (!db)
+    {
+        return -1;
+    }
+
+    if (db->buffered_count > 0 && db->has_first_point)
+    {
+        if ((current_time - db->first_point_timestamp) >= (int64_t)db->config.max_time_window_ms)
+        {
+            return (ptdb_flush(db) == 0) ? 1 : -1;
+        }
+    }
+
+    return 0;
+}
+
 int ptdb_close(PTDB *db)
 {
     if (!db)
@@ -504,14 +727,23 @@ int ptdb_close(PTDB *db)
         return 0;
     }
 
+    int ret = 0;
+
     if (db->buffered_count > 0)
     {
-        ptdb_flush(db);
+        if (ptdb_flush(db) != 0)
+        {
+            ret = -1;
+        }
     }
 
     if (db->fd != -1 && db->config.sync_mode != PTDB_SYNC_NONE)
     {
-        fsync(db->fd);
+        if (fsync(db->fd) == -1)
+        {
+            perror("ptdb_close: fsync");
+            ret = -1;
+        }
     }
 
     if (db->buffer)
@@ -522,10 +754,14 @@ int ptdb_close(PTDB *db)
 
     if (db->fd != -1)
     {
-        close(db->fd);
+        if (close(db->fd) == -1)
+        {
+            perror("ptdb_close: close");
+            ret = -1;
+        }
         db->fd = -1;
     }
 
     free(db);
-    return 0;
+    return ret;
 }
