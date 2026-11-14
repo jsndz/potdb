@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind ${{ matrix.compiler }}
+
+      - name: Build potDB and static library
+        run: |
+          make clean
+          CC=${{ matrix.compiler }} make potdb lib
+
+      - name: Run test suite
+        run: |
+          CC=${{ matrix.compiler }} make all_tests
+
+      - name: Memory check with Valgrind
+        run: |
+          valgrind --leak-check=full --show-leak-kinds=all --error-exitcode=1 ./build/test_unit
+          valgrind --leak-check=full --show-leak-kinds=all --error-exitcode=1 ./build/test_edge
