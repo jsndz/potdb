@@ -185,6 +185,7 @@ void ptdb_get_point_2d(const void *points, uint32_t index, Point2D *out)
     {
         return;
     }
+    memset(out, 0, sizeof(Point2D));
     const uint8_t *ptr = (const uint8_t *)points + (index * sizeof(Point2D));
     out->timestamp = (int64_t)get_le64(ptr + 0);
     out->x = get_le_float(ptr + 8);
@@ -197,6 +198,7 @@ void ptdb_get_point_3d(const void *points, uint32_t index, Point3D *out)
     {
         return;
     }
+    memset(out, 0, sizeof(Point3D));
     const uint8_t *ptr = (const uint8_t *)points + (index * sizeof(Point3D));
     out->timestamp = (int64_t)get_le64(ptr + 0);
     out->x = get_le_float(ptr + 8);

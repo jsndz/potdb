@@ -256,10 +256,10 @@ PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
     db->config.sync_interval_flushes = (config && config->sync_interval_flushes > 0) ? config->sync_interval_flushes : PTDB_DEFAULT_SYNC_INTERVAL_FLUSHES;
     db->flushes_since_sync = 0;
 
-    db->buffer = (uint8_t *)malloc(db->config.max_points * db->point_stride);
+    db->buffer = (uint8_t *)calloc(db->config.max_points, db->point_stride);
     if (!db->buffer)
     {
-        perror("ptdb_open: malloc RAM buffer");
+        perror("ptdb_open: calloc RAM buffer");
         free(db);
         close(fd);
         return NULL;
@@ -340,7 +340,7 @@ PTDB *ptdb_open(const char *filepath, const PTDBConfig *config)
         }
         else
         {
-            chk_buf = (uint8_t *)malloc(payload_size);
+            chk_buf = (uint8_t *)calloc(1, payload_size);
             if (!chk_buf)
             {
                 break;
@@ -638,6 +638,10 @@ int ptdb_insert_3d(PTDB *db, int64_t timestamp, float x, float y, float z)
     put_le_float(dest + 8, x);
     put_le_float(dest + 12, y);
     put_le_float(dest + 16, z);
+    if (db->point_stride > 20)
+    {
+        memset(dest + 20, 0, db->point_stride - 20);
+    }
 
     if (db->buffered_count == 0)
     {
